@@ -1,0 +1,33 @@
+{
+  "name": "zoomrecord-backend",
+  "version": "1.0.0",
+  "description": "Backend server for ZoomRecord app — generates Zoom SDK JWTs, verifies Firebase auth, proxies meeting creation",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.14.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "ffmpeg-static": "^5.3.0",
+    "firebase-admin": "^12.5.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "google-auth-library": "^9.15.1",
+    "googleapis": "^133.0.0",
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.3.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "playwright": "^1.41.2",
+    "telegraf": "^4.16.3",
+    "uuid": "^10.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

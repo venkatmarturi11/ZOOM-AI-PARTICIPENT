@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Naniv",
+    "email": "naniv401@gmail.com",
+    "userId": "naniv401@gmail.com",
+    "password": "$2a$12$jbpa2eTqn1fsC6yyJEI1jueWDUQdnURNUmJA0U3c47GJgMP.6BUgq",
+    "createdAt": "2026-08-08T15:39:27.040Z"
+  },
+  {
+    "name": "Demo User",
+    "email": "user@gmail.com",
+    "userId": "user@gmail.com",
+    "password": "$2a$12$1JqKmLIS7MQjHVos.X0jGenUW96VydfE8/LiQ33OAThve/KVjlEDa",
+    "createdAt": "2026-08-08T15:39:27.041Z"
+  }
+]

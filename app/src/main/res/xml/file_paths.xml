@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- App-specific external files (Movies/ZoomRecordings) -->
+    <external-files-path name="zoom_recordings" path="Movies/ZoomRecordings" />
+    <external-files-path name="all_external_files" path="." />
+    <!-- App internal files fallback -->
+    <files-path name="internal_recordings" path="ZoomRecordings" />
+    <files-path name="all_internal_files" path="." />
+    <!-- Cache files -->
+    <cache-path name="cache" path="." />
+    <external-cache-path name="external_cache" path="." />
+</paths>

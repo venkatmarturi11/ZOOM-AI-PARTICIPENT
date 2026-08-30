@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoom Bot Meeting Recorder</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">Z</div>
+        <div class="brand-name">Zoom Recorder</div>
+      </div>
+
+      <nav class="nav-links">
+        <div class="nav-item active" data-tab="dashboard">
+          <span>📊</span> Dashboard
+        </div>
+        <div class="nav-item" data-tab="new-recording">
+          <span>⏺️</span> New Recording
+        </div>
+        <div class="nav-item" data-tab="recordings">
+          <span>📁</span> Recordings Library
+        </div>
+        <div class="nav-item" data-tab="settings">
+          <span>⚙️</span> Settings & Auth
+        </div>
+      </nav>
+
+      <div class="zoom-status-card">
+        <div style="color: var(--text-muted);">Zoom Account</div>
+        <div class="status-badge">
+          <div class="status-dot"></div>
+          <span id="zoom-account-name">Meeting Recorder Bot</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Dynamic Content -->
+    <main class="main-view" id="content-view">
+      <!-- Injected by app.js -->
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

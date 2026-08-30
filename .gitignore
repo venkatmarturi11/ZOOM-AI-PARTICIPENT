@@ -1,0 +1,34 @@
+# Built files
+*.iml
+*.apk
+.gradle
+.kotlin
+/local.properties
+/.idea
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# App build output
+/app/build
+
+# Zoom SDK — user downloads manually
+/app/libs/*.aar
+
+# Firebase config — user downloads manually
+/app/google-services.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node & Media files
+node_modules/
+**/node_modules/
+.env
+**/.env
+recordings/*.mp4
+recordings/*.m4a
+**/recordings/*.mp4
+**/recordings/*.m4a

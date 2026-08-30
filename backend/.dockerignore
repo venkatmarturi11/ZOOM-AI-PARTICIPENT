@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+recordings/*.mp4
+recordings/*.m4a
+storage/*
+.env

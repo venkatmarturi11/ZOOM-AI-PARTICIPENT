@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Zoom Meeting Recording Suite — Master Technical Specification (v3.0.0)</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+        @page {
+            size: A4;
+            margin: 18mm 15mm 18mm 15mm;
+            @bottom-right {
+                content: counter(page);
+                font-family: 'Inter', sans-serif;
+                font-size: 8pt;
+                color: #64748b;
+            }
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #1e293b;
+            background: #ffffff;
+            line-height: 1.55;
+            font-size: 9.5pt;
+            margin: 0;
+            padding: 0;
+        }
+
+        .cover-page {
+            page-break-after: always;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 40px 20px;
+            border-left: 6px solid #0d72ff;
+        }
+
+        .cover-badge {
+            display: inline-block;
+            background: #eff6ff;
+            color: #0d72ff;
+            font-weight: 700;
+            font-size: 8.5pt;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid #bfdbfe;
+            margin-bottom: 20px;
+        }
+
+        .cover-title {
+            font-size: 28pt;
+            font-weight: 800;
+            color: #0f172a;
+            line-height: 1.15;
+            margin: 0 0 16px 0;
+        }
+
+        .cover-subtitle {
+            font-size: 13pt;
+            color: #475569;
+            font-weight: 400;
+            line-height: 1.4;
+            margin: 0 0 30px 0;
+        }
+
+        .cover-meta {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .cover-meta-label {
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 8pt;
+            letter-spacing: 0.5px;
+        }
+
+        .cover-meta-value {
+            color: #0f172a;
+            font-weight: 600;
+            font-size: 9.5pt;
+        }
+
+        h1 {
+            font-size: 17pt;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 8px;
+            margin-top: 28px;
+            margin-bottom: 12px;
+            color: #0f172a;
+        }
+
+        h2 {
+            font-size: 12.5pt;
+            margin-top: 20px;
+            margin-bottom: 8px;
+            color: #0d72ff;
+        }
+
+        p {
+            margin-top: 0;
+            margin-bottom: 10px;
+            text-align: justify;
+        }
+
+        pre {
+            background: #0f172a;
+            color: #e2e8f0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 8pt;
+            padding: 12px;
+            border-radius: 8px;
+            line-height: 1.45;
+            margin: 12px 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 14px 0;
+            font-size: 8.5pt;
+        }
+
+        th, td {
+            border: 1px solid #cbd5e1;
+            padding: 8px 10px;
+            text-align: left;
+        }
+
+        th {
+            background: #f8fafc;
+            font-weight: 700;
+        }
+
+        .callout {
+            border-left: 4px solid #0d72ff;
+            background: #f0f7ff;
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+            margin: 12px 0;
+        }
+
+        .section-break {
+            page-break-before: always;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="cover-page">
+        <div>
+            <div class="cover-badge">Architecture Baseline • v3.0.0</div>
+            <h1 class="cover-title">Zoom Meeting Recording Suite</h1>
+            <p class="cover-subtitle">Production Architecture: Server-Side RTMS Media Pipeline, Multi-Platform Control Interfaces, and Security Standard</p>
+        </div>
+
+        <div class="cover-meta">
+            <div>
+                <div class="cover-meta-label">Primary Media Pipeline</div>
+                <div class="cover-meta-value">Zoom RTMS • FFmpeg • Private S3</div>
+            </div>
+            <div>
+                <div class="cover-meta-label">Control Clients</div>
+                <div class="cover-meta-value">Android (Compose) • Desktop (Electron) • Telegram</div>
+            </div>
+            <div>
+                <div class="cover-meta-label">Security Model</div>
+                <div class="cover-meta-value">OAuth 2.0 • ZAK Tokens • Ephemeral Passcodes</div>
+            </div>
+            <div>
+                <div class="cover-meta-label">Status</div>
+                <div class="cover-meta-value">v3.0.0 Approved Architecture</div>
+            </div>
+        </div>
+    </div>
+
+    <h1>1. System Architecture Overview</h1>
+    <pre>
+                 ┌─────────────────────────────────────────┐
+                 │          CLIENT CONTROL SURFACES        │
+                 │                                         │
+                 │   Android App • Desktop • Telegram      │
+                 └────────────────────┬────────────────────┘
+                                      │ HTTPS / WebSocket
+                                      ▼
+                 ┌─────────────────────────────────────────┐
+                 │               BACKEND API               │
+                 │          Node.js / TypeScript           │
+                 │      Auth • Jobs • Database Store       │
+                 └────────────────────┬────────────────────┘
+                                      │
+                               Redis / BullMQ
+                                      │
+                                      ▼
+                 ┌─────────────────────────────────────────┐
+                 │             RTMS MEDIA WORKER           │
+                 │                                         │
+                 │  Zoom RTMS Stream Ingestion (Audio/Vid) │
+                 │  State Machine & Timestamp Synchronizer │
+                 └────────────────────┬────────────────────┘
+                                      │
+                                      ▼
+                 ┌─────────────────────────────────────────┐
+                 │             FFMPEG PIPELINE             │
+                 │                                         │
+                 │   H.264 / AAC Muxing & MP4 Packaging   │
+                 └────────────────────┬────────────────────┘
+                                      │
+                                      ▼
+                 ┌─────────────────────────────────────────┐
+                 │          PRIVATE OBJECT STORAGE         │
+                 │           S3 / Signed URLs              │
+                 └─────────────────────────────────────────┘
+    </pre>
+
+    <h1>2. Client Roles & Responsibilities</h1>
+    <p>All client surfaces act purely as <b>control and monitoring interfaces</b>. The recording lifecycle remains authoritative on the server and is decoupled from client connectivity.</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Client Interface</th>
+                <th>Core Responsibilities</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><b>Android Mobile App</b></td>
+                <td>User login, meeting intake, job dispatching, live recording status HUD, ExoPlayer media playback, signed URL downloads.</td>
+            </tr>
+            <tr>
+                <td><b>Desktop App (Electron)</b></td>
+                <td>Dashboard monitoring, quick intake, real-time waveform visualizers, media library management, settings configuration.</td>
+            </tr>
+            <tr>
+                <td><b>Telegram Control Plane</b></td>
+                <td>Remote management commands (<code>/record</code>, <code>/stop</code>, <code>/status</code>, <code>/recordings</code>, <code>/health</code>), operator allowlist, automated status alerts.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="section-break"></div>
+    <h1>3. Server RTMS Media Worker & FFmpeg Pipeline</h1>
+
+    <h2>3.1 Media Ingestion & Timestamp Synchronization</h2>
+    <p>The worker consumes Zoom Realtime Media Streams (RTMS) via WebSocket connections. Monotonic timestamps are derived from incoming packet metadata to guarantee accurate audio/video synchronization.</p>
+
+    <h2>3.2 State Machine Lifecycle</h2>
+    <pre>
+CREATED ──► QUEUED ──► STARTING ──► CONNECTING ──► CONNECTED ──► RECORDING
+                                                                     │
+                                                                     ▼
+COMPLETED ◄── UPLOADING ◄── FINALIZING ◄── STOPPING ◄────────────────┘
+    </pre>
+
+    <h2>3.3 FFmpeg Finalization</h2>
+    <p>Muxes raw audio/video streams into seekable MP4 containers with <code>-movflags +faststart</code>, followed by container integrity and duration verification.</p>
+
+    <h1>4. Security & Privacy Model</h1>
+    <ul>
+        <li><b>Official Authorization:</b> Uses Zoom OAuth 2.0 and ZAK (Zoom Access Key) tokens.</li>
+        <li><b>Ephemeral Credentials:</b> Meeting passcodes are maintained in worker memory only for active sessions and never persisted in plaintext.</li>
+        <li><b>Access Control:</b> Media downloads are gated behind short-lived cryptographically signed URLs.</li>
+    </ul>
+
+    <h1>5. Experimental WebView Capture Research Module</h1>
+    <div class="callout">
+        <b>Module Designation:</b> <code>experimental/webview-recorder/</code> is classified as an independent research module for in-app surface capture (<code>PixelCopy</code>) and Web Audio experiments. It is isolated from the core production pipeline.
+    </div>
+
+    <h1>6. Implementation Roadmap (Phases 1–12)</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Phase</th>
+                <th>Milestone</th>
+                <th>Deliverable</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>Phase 01</td><td>Backend API & Job Queue</td><td>Node.js API, DB Schema & BullMQ setup</td></tr>
+            <tr><td>Phase 02</td><td>Zoom Authorization</td><td>OAuth 2.0 flow & ZAK token management</td></tr>
+            <tr><td>Phase 03</td><td>RTMS Worker</td><td>WebSocket media receiver client</td></tr>
+            <tr><td>Phase 04</td><td>Media Ingestion</td><td>Timestamped audio & video buffering</td></tr>
+            <tr><td>Phase 05</td><td>FFmpeg MP4 Generation</td><td>Synchronized MP4 container muxing</td></tr>
+            <tr><td>Phase 06</td><td>Private Storage</td><td>S3 storage & signed URL access</td></tr>
+            <tr><td>Phase 07</td><td>Android Application</td><td>Control plane, live HUD, ExoPlayer viewer</td></tr>
+            <tr><td>Phase 08</td><td>Desktop Application</td><td>Electron + React dashboard & library</td></tr>
+            <tr><td>Phase 09</td><td>Telegram Control Plane</td><td>BotFather remote command interface</td></tr>
+            <tr><td>Phase 10</td><td>Reliability & Recovery</td><td>Heartbeat watchdogs & crash recovery</td></tr>
+            <tr><td>Phase 11</td><td>WebView Research Module</td><td>Isolated client-side capture experiments</td></tr>
+            <tr><td>Phase 12</td><td>AI Transcription & Search</td><td>Transcript ingestion & semantic search</td></tr>
+        </tbody>
+    </table>
+
+</body>
+</html>

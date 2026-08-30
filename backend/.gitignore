@@ -1,0 +1,9 @@
+node_modules/
+.env
+firebase-service-account.json
+recordings/*.mp4
+recordings/*.m4a
+storage/*
+sessions/*.json
+npm-debug.log
+.DS_Store

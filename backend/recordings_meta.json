@@ -1,0 +1,72 @@
+[
+  {
+    "id": "rec_1786283899144",
+    "meetingId": "82705502661",
+    "botName": "rycb",
+    "fileName": "ZoomMeeting_82705502661_1786283895887.mp4",
+    "sizeBytes": 11290030,
+    "sizeMb": "10.77 MB",
+    "createdAt": "2026-08-09T13:58:19.145Z",
+    "status": "RECORDED 1080P HD • LOCAL STORAGE",
+    "storageType": "Local Storage",
+    "videoUrl": "/recordings/ZoomMeeting_82705502661_1786283895887.mp4",
+    "videoSaved": true,
+    "processing": false
+  },
+  {
+    "id": "rec_1786283799065",
+    "meetingId": "82705502661",
+    "botName": "Zoom AI Bot",
+    "fileName": "ZoomMeeting_82705502661_1786283768403.mp4",
+    "sizeBytes": 1428410,
+    "sizeMb": "1.36 MB",
+    "createdAt": "2026-08-09T13:56:39.065Z",
+    "status": "RECORDED 1080P HD • LOCAL STORAGE",
+    "storageType": "Local Storage",
+    "videoUrl": "/recordings/ZoomMeeting_82705502661_1786283768403.mp4",
+    "videoSaved": true,
+    "processing": false
+  },
+  {
+    "id": "rec_1786282834638",
+    "meetingId": "82705502661",
+    "botName": "Mr's Bot",
+    "fileName": "ZoomMeeting_82705502661_1786282303154.mp4",
+    "sizeBytes": 4536233,
+    "sizeMb": "4.33 MB",
+    "createdAt": "2026-08-09T13:40:34.638Z",
+    "status": "RECORDED 1080P HD • LOCAL STORAGE",
+    "storageType": "Local Storage",
+    "videoUrl": "/recordings/ZoomMeeting_82705502661_1786282303154.mp4",
+    "videoSaved": true,
+    "processing": false
+  },
+  {
+    "id": "rec_1786280599156",
+    "meetingId": "82705502661",
+    "botName": "Mr's Bot",
+    "fileName": "ZoomMeeting_82705502661_1786280531453.mp4",
+    "sizeBytes": 2922422,
+    "sizeMb": "2.79 MB",
+    "createdAt": "2026-08-09T13:03:19.156Z",
+    "status": "RECORDED 1080P HD • LOCAL STORAGE",
+    "storageType": "Local Storage",
+    "videoUrl": "/recordings/ZoomMeeting_82705502661_1786280531453.mp4",
+    "videoSaved": true,
+    "processing": false
+  },
+  {
+    "id": "rec_1786279925556",
+    "meetingId": "82705502661",
+    "botName": "rycb",
+    "fileName": "ZoomMeeting_82705502661_1786279811843.mp4",
+    "sizeBytes": 35556279,
+    "sizeMb": "33.91 MB",
+    "createdAt": "2026-08-09T12:52:05.556Z",
+    "status": "RECORDED 1080P HD • LOCAL STORAGE",
+    "storageType": "Local Storage",
+    "videoUrl": "/recordings/ZoomMeeting_82705502661_1786279811843.mp4",
+    "videoSaved": true,
+    "processing": false
+  }
+]

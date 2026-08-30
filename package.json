@@ -1,0 +1,16 @@
+{
+  "name": "zoom-recording-suite",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Unified Zoom Autonomous Meeting Recorder Engine, Web Studio & Desktop App",
+  "scripts": {
+    "start": "node backend/src/index.js",
+    "dev": "node --watch backend/src/index.js",
+    "desktop": "cd apps/desktop && npm start",
+    "test:parser": "node -e \"console.log(require('./backend/src/services/meetingParser').parseMeetingInput('82705502661'))\"",
+    "test:health": "node -e \"require('http').get('http://localhost:3000/api/health', (res) => res.pipe(process.stdout))\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

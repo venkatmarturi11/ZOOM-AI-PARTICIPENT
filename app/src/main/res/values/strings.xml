@@ -1,0 +1,49 @@
+<resources>
+    <string name="app_name">ZoomRecord</string>
+
+    <!-- Auth -->
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="signing_in">Signing in…</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="auth_error_generic">Sign-in failed. Please try again.</string>
+
+    <!-- Meeting -->
+    <string name="join_meeting">Join Meeting</string>
+    <string name="meeting_number_hint">Meeting Number</string>
+    <string name="meeting_password_hint">Meeting Password</string>
+    <string name="display_name_hint">Your Display Name</string>
+
+    <!-- Recording -->
+    <string name="start_recording">Start Recording</string>
+    <string name="stop_recording">Stop Recording</string>
+    <string name="recording_in_progress">Recording in progress…</string>
+    <string name="recording_paused_screen_lock">Recording paused — screen locked</string>
+    <string name="recording_stopped_low_storage">Recording stopped — low storage</string>
+    <string name="recording_error">Recording could not be finalized cleanly</string>
+    <string name="storage_low_warning">Storage low — recording will stop soon</string>
+
+    <!-- Notifications -->
+    <string name="recording_notification_channel">Screen Recording</string>
+    <string name="recording_notification_title">Recording Meeting</string>
+    <string name="recording_notification_stop">Stop</string>
+
+    <!-- Recordings Library -->
+    <string name="recordings_title">Recordings</string>
+    <string name="no_recordings">No recordings yet — start one from a meeting.</string>
+    <string name="delete_recording">Delete</string>
+    <string name="rename_recording">Rename</string>
+    <string name="share_recording">Share</string>
+
+    <!-- Storage -->
+    <string name="storage_available">Available storage: %s</string>
+    <string name="storage_estimate_30min">30 min ≈ %s</string>
+    <string name="storage_estimate_60min">60 min ≈ %s</string>
+    <string name="not_enough_storage">Not enough storage to start recording</string>
+
+    <!-- General -->
+    <string name="error">Error</string>
+    <string name="retry">Retry</string>
+    <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
+    <string name="save">Save</string>
+</resources>

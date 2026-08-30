@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ai ZoomParticipant — Autonomous Meeting Bot & Studio</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Identity Services (GIS) SDK -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       1. SLATE & PASTEL SPLIT AUTH PAGE (SIGN IN & CREATE NEW USER)
+       ========================================================================== -->
+  <div class="slate-login-outer-wrapper" id="auth-split-wrapper">
+    <div class="slate-login-modal-card">
+      <!-- Left Dark Slate Panel -->
+      <div class="slate-left-panel">
+        <div class="slate-brand-logo">
+          <i class="fa-solid fa-shapes"></i>
+          <span>Ai ZoomParticipant</span>
+        </div>
+
+        <!-- Vertical Timeline Stepper -->
+        <div class="timeline-stepper">
+          <div class="step-item active">
+            <div class="step-circle"></div>
+            <span>Profile</span>
+          </div>
+          <div class="step-item current" id="stepper-cred-label">
+            <div class="step-circle"></div>
+            <span>Authentication</span>
+          </div>
+          <div class="step-item">
+            <div class="step-circle"></div>
+            <span>Confirm &amp; Enter</span>
+          </div>
+        </div>
+
+        <!-- Bottom Male Illustration -->
+        <div class="slate-person-illustration">
+          <i class="fa-solid fa-user-check person-icon"></i>
+          <span class="thumbs-up-badge"><i class="fa-solid fa-thumbs-up"></i></span>
+        </div>
+      </div>
+
+      <!-- Right Warm Pastel Form Panel -->
+      <div class="pastel-right-panel">
+        <!-- Auth Header Toggle -->
+        <div class="auth-mode-toggle-bar">
+          <button type="button" class="auth-toggle-btn active" id="toggle-signin-tab">Sign In</button>
+          <button type="button" class="auth-toggle-btn" id="toggle-signup-tab">Create New User</button>
+        </div>
+
+        <!-- Notification / Error Box -->
+        <div id="auth-alert-box" class="auth-alert-message" style="display: none;"></div>
+
+        <!-- FORM 1: SIGN IN FORM -->
+        <div id="auth-form-signin-container">
+          <h1 class="pastel-headline">Welcome back 👋</h1>
+          <p class="pastel-subheadline">Please enter your User ID / Email and password to sign in</p>
+
+          <form id="slate-login-form">
+            <div class="pastel-clean-form">
+              <div class="form-field full-width">
+                <label for="email">User ID / Email Address</label>
+                <input type="text" id="email" placeholder="Enter User ID or Email" required>
+              </div>
+
+              <div class="form-field full-width margin-top-16">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="Enter password" required>
+              </div>
+            </div>
+
+            <!-- Sign In Button -->
+            <button type="submit" class="btn-slate-solid margin-top-24" id="btn-submit-signin">
+              Sign In to Studio
+            </button>
+          </form>
+
+          <p class="auth-switch-footer margin-top-20">
+            Don't have an account? <a href="#" id="link-go-to-signup">Create New User Account</a>
+          </p>
+        </div>
+
+        <!-- FORM 2: CREATE NEW USER (SIGN UP) FORM -->
+        <div id="auth-form-signup-container" style="display: none;">
+          <h1 class="pastel-headline">Create New Account ✨</h1>
+          <p class="pastel-subheadline">Register a new user profile to access Zoom Studio</p>
+
+          <form id="slate-signup-form">
+            <div class="pastel-clean-form">
+              <div class="form-field full-width">
+                <label for="signup-fullname">Full Name</label>
+                <input type="text" id="signup-fullname" placeholder="e.g. Arjun Kumar" required>
+              </div>
+
+              <div class="form-field full-width margin-top-16">
+                <label for="signup-email">User ID / Email Address</label>
+                <input type="text" id="signup-email" placeholder="e.g. arjun@gmail.com" required>
+              </div>
+
+              <div class="form-field full-width margin-top-16">
+                <label for="signup-password">Password</label>
+                <input type="password" id="signup-password" placeholder="Create a password" required>
+              </div>
+
+              <div class="form-field full-width margin-top-16">
+                <label for="signup-confirm">Confirm Password</label>
+                <input type="password" id="signup-confirm" placeholder="Confirm your password" required>
+              </div>
+            </div>
+
+            <!-- Create Account Button -->
+            <button type="submit" class="btn-slate-solid margin-top-24" id="btn-submit-signup">
+              Create New User Account
+            </button>
+          </form>
+
+          <p class="auth-switch-footer margin-top-20">
+            Already have an account? <a href="#" id="link-go-to-signin">Sign In to Account</a>
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================================================
+       2. MAIN APP DASHBOARD WRAPPER
+       ========================================================================== -->
+  <div class="app-container" id="app-main-wrapper" style="display: none;">
+    <!-- Slate Sidebar Menu -->
+    <aside class="sidebar" id="app-sidebar">
+      <div class="brand">
+        <button class="sidebar-toggle" id="sidebar-toggle-btn" title="Toggle Sidebar">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+        <span class="brand-title"><i class="fa-solid fa-shapes"></i> Ai ZoomParticipant</span>
+      </div>
+
+      <!-- Vertical Timeline Nav Menu -->
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="dashboard" title="Register Meeting">
+          <i class="fa-solid fa-video"></i>
+          <span>Register Meeting</span>
+        </button>
+        <button class="nav-item" data-tab="active-recorder" id="nav-active-rec" title="Active Bot Status">
+          <i class="fa-solid fa-circle-dot rec-pulse-icon"></i>
+          <span>Active Bot Status</span>
+          <span class="live-pill" id="live-indicator" style="display: none;">BOT LIVE</span>
+        </button>
+        <button class="nav-item" data-tab="history" id="nav-history-tab" title="Recorded Meetings">
+          <i class="fa-solid fa-folder-closed"></i>
+          <span>Recorded Meetings</span>
+        </button>
+        <button class="nav-item" data-tab="storage" id="nav-storage-tab" title="Cloud Storage Vault">
+          <i class="fa-solid fa-cloud"></i>
+          <span>Cloud Storage</span>
+        </button>
+        <button class="nav-item" data-tab="admin" id="nav-admin-tab" style="display: none;" title="Admin Console">
+          <i class="fa-solid fa-user-shield"></i>
+          <span>Admin Console</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-profile">
+          <div class="avatar">
+            <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=User" alt="User Avatar" id="sidebar-user-avatar">
+          </div>
+          <div class="user-details">
+            <span class="user-name" id="sidebar-user-name">User Account</span>
+            <span class="user-plan" id="sidebar-user-email"><i class="fa-solid fa-circle-check"></i> Logged In</span>
+          </div>
+          <button class="btn-logout-sidebar" id="btn-sidebar-logout" title="Log Out">
+            <i class="fa-solid fa-right-from-bracket"></i>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Clean Header -->
+      <header class="top-header">
+        <div class="mobile-top-brand">
+          <button class="mobile-menu-toggle" id="btn-mobile-sidebar-toggle" title="Open Navigation Menu">
+            <i class="fa-solid fa-bars"></i>
+          </button>
+          <span class="mobile-brand-title"><i class="fa-solid fa-shapes"></i> Ai ZoomParticipant</span>
+        </div>
+
+        <div class="header-search">
+          <input type="text" placeholder="Search recorded meetings or meeting IDs..." id="global-search">
+          <button class="search-right-btn" id="btn-search-trigger">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <span>Search</span>
+          </button>
+        </div>
+
+        <div class="header-actions">
+          <button class="icon-btn-header" id="btn-header-notifications" title="System Notifications">
+            <i class="fa-solid fa-bell"></i>
+            <span class="notification-badge-dot"></span>
+          </button>
+          <button class="btn-slate-solid btn-sm" id="btn-quick-record-trigger">
+            <i class="fa-solid fa-plus"></i> New Meeting Bot
+          </button>
+        </div>
+      </header>
+
+      <!-- TAB 1: ZOOM DETAILS REGISTRATION (Main Dashboard) -->
+      <div id="tab-dashboard" class="tab-pane active">
+        <div class="dashboard-grid">
+          <!-- Main Form Card -->
+          <div class="card main-register-card">
+            <div class="card-header-clean">
+              <div>
+                <h2>Zoom Meeting Registration</h2>
+                <p>Deploy autonomous AI participant bot to attend &amp; record meetings in 1080p Full HD.</p>
+              </div>
+              <span class="badge-pill"><i class="fa-solid fa-bolt"></i> Ready</span>
+            </div>
+
+            <form id="zoom-register-form" class="clean-styled-form">
+              <!-- Meeting URL or ID -->
+              <div class="form-group full-width">
+                <label for="meetingUrl">Zoom Meeting / Webinar Link or ID <span class="req">*</span></label>
+                <div class="input-with-icon">
+                  <i class="fa-solid fa-link input-icon"></i>
+                  <input type="text" id="meetingUrl" placeholder="e.g. https://zoom.us/j/83417486366 or 83417486366" required>
+                </div>
+              </div>
+
+              <!-- Grid Row: Passcode & Bot Display Name -->
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label for="passcode">Meeting Passcode <span class="optional">(Optional)</span></label>
+                  <div class="input-with-icon">
+                    <i class="fa-solid fa-lock input-icon"></i>
+                    <input type="text" id="passcode" placeholder="Enter passcode if required">
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="botName">Bot Display Name <span class="req">*</span></label>
+                  <div class="input-with-icon">
+                    <i class="fa-solid fa-user-astronaut input-icon"></i>
+                    <input type="text" id="botName" value="rycb" placeholder="e.g. venkey" required>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Grid Row: Recording Quality & Video Format -->
+              <div class="form-row-2">
+                <div class="form-group">
+                  <label for="videoQuality">Recording Quality <span class="req">*</span></label>
+                  <div class="input-with-icon">
+                    <i class="fa-solid fa-display input-icon"></i>
+                    <select id="videoQuality">
+                      <option value="1080p" selected>1080p Full HD (Default)</option>
+                      <option value="4K">4K Ultra HD</option>
+                      <option value="720p">720p HD</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="videoFormat">Video Format <span class="req">*</span></label>
+                  <div class="input-with-icon">
+                    <i class="fa-solid fa-file-video input-icon"></i>
+                    <select id="videoFormat">
+                      <option value="mp4" selected>MP4 Video (.mp4 Default)</option>
+                      <option value="mkv">MKV Video (.mkv)</option>
+                      <option value="webm">WebM Video (.webm)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Action Submit Button -->
+              <div class="form-actions-bar">
+                <button type="submit" class="btn-slate-solid btn-lg" id="btn-deploy-bot">
+                  <i class="fa-solid fa-paper-plane"></i> Dispatch Bot to Attend &amp; Record Meeting
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Quick Info & Stats Side Card -->
+          <div class="card info-side-card">
+            <h3><i class="fa-solid fa-shield-halved"></i> Bot Features</h3>
+            <ul class="features-list">
+              <li><i class="fa-solid fa-check text-success"></i> <strong>Full HD 1080p</strong> Recording Engine</li>
+              <li><i class="fa-solid fa-check text-success"></i> <strong>MP4 / MKV</strong> Video Output Formats</li>
+              <li><i class="fa-solid fa-check text-success"></i> <strong>Auto-Dismiss</strong> Notification Popups</li>
+              <li><i class="fa-solid fa-check text-success"></i> <strong>Focus Host Screen</strong> (Hides Video Tiles)</li>
+              <li><i class="fa-solid fa-check text-success"></i> <strong>Webinars &amp; Classes</strong> Token Auto-Join</li>
+              <li><i class="fa-solid fa-check text-success"></i> <strong>reCAPTCHA Solver</strong> Human Physics</li>
+            </ul>
+
+            <div class="system-status-box margin-top-20">
+              <span class="status-indicator online"></span>
+              <span>Bot Backend: <strong>Operational (Port 3000)</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: ACTIVE RECORDER STATUS & LIVE SCREEN MONITOR -->
+      <div id="tab-active-recorder" class="tab-pane">
+        <div class="card active-bot-card">
+          <div class="card-header-clean">
+            <div>
+              <h2><i class="fa-solid fa-desktop text-accent"></i> Active Bot Screen Monitor</h2>
+              <p>Real-time 1080p HD live screen window and controls for your deployed Zoom recording bot.</p>
+            </div>
+            <span class="status-badge standby" id="bot-status-badge">STANDBY</span>
+          </div>
+
+          <div class="bot-monitor-body" id="active-bot-details">
+            <!-- 1. LIVE RECORDING SCREEN WINDOW -->
+            <div class="rec-screen-window shadow-lg margin-top-12">
+              <!-- Window Bar Header -->
+              <div class="rec-window-bar">
+                <div class="window-controls-dots">
+                  <span class="dot red"></span>
+                  <span class="dot yellow"></span>
+                  <span class="dot green"></span>
+                </div>
+                <div class="window-title">
+                  <i class="fa-solid fa-video text-danger pulse"></i>
+                  <span>LIVE BOT SCREEN MONITOR &amp; RECORDING FEED</span>
+                </div>
+                <div class="window-actions">
+                  <span class="rec-timer-pill" id="rec-timer-badge"><i class="fa-solid fa-circle text-danger blink"></i> 00:00:00</span>
+                  <button class="window-btn" id="btn-snap-rec" title="Take Live Snapshot"><i class="fa-solid fa-camera"></i> Snapshot</button>
+                  <button class="window-btn" id="btn-fullscreen-rec" title="Fullscreen Preview"><i class="fa-solid fa-expand"></i></button>
+                </div>
+              </div>
+
+              <!-- Live Screen Viewport (Real Bot Browser Screenshots + Hybrid Canvas Fallback) -->
+              <div class="rec-viewport-container" id="rec-viewport-container">
+                <!-- REAL LIVE SCREENSHOT from bot's actual browser -->
+                <img id="live-bot-screenshot" src="" alt="Bot Live Screen" style="width: 100%; height: 100%; object-fit: contain; display: none; background: #0f111a; border-radius: 6px;">
+                
+                <!-- LIVE 1080p HD CANVAS MONITOR STREAM -->
+                <canvas id="live-rec-canvas" width="1920" height="1080" style="display: none; width: 100%; height: 100%; object-fit: contain; border-radius: 6px;"></canvas>
+
+                <!-- STANDBY screen shown when no bot is active -->
+                <div id="live-standby-screen" style="width: 100%; aspect-ratio: 16/9; background: #0f111a; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 6px; gap: 12px;">
+                  <i class="fa-solid fa-robot" style="font-size: 48px; color: #475569;"></i>
+                  <span style="color: #94a3b8; font-size: 18px; font-weight: 600;">🤖 BOT ENGINE STANDBY — READY TO RECORD</span>
+                  <span style="color: #64748b; font-size: 14px;">Dispatch a Zoom Bot from "Register Meeting" tab to stream live 1080p video feed here.</span>
+                </div>
+
+                <!-- Canvas Top Left Overlay -->
+                <div class="canvas-overlay-tag top-left">
+                  <span class="live-dot-pulse"></span>
+                  <span id="overlay-bot-tag"><i class="fa-solid fa-robot"></i> Bot: rycb (1080p HD • Muted &amp; Video OFF)</span>
+                </div>
+
+                <!-- Canvas Top Right Overlay -->
+                <div class="canvas-overlay-tag top-right">
+                  <i class="fa-solid fa-shield-cat"></i> <span id="overlay-res-tag">1080p Full HD • 60 FPS</span>
+                </div>
+
+                <!-- Canvas Bottom Left Overlay -->
+                <div class="canvas-overlay-tag bottom-left">
+                  <div class="live-audio-bars" id="audio-wave-bars">
+                    <span class="b"></span><span class="b"></span><span class="b"></span><span class="b"></span>
+                  </div>
+                  <span id="overlay-audio-tag">Virtual Bot Participant Engine</span>
+                </div>
+
+                <!-- Canvas Bottom Right Overlay -->
+                <div class="canvas-overlay-tag bottom-right">
+                  <i class="fa-solid fa-circle-check text-success"></i> AI Auto-Dismiss Active
+                </div>
+              </div>
+            </div>
+
+            <!-- 1.5 HUMAN TAKEOVER (HITL) INTERACTIVE REMOTE CONTROL BAR -->
+            <div class="hitl-control-box margin-top-12" id="hitl-control-box" style="background: #1e293b; padding: 14px; border-radius: 8px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 10px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span class="status-badge" id="control-mode-badge" style="background: #3b82f6; color: white; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 13px;">🤖 BOT CONTROL ACTIVE</span>
+                  <span style="color: #94a3b8; font-size: 13px;" id="control-mode-desc">Bot is running autonomously. Click "Take Control" to operate manually.</span>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-primary" id="btn-take-control" style="background: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                    <i class="fa-solid fa-user-gear"></i> 👤 Take Control (Human Takeover)
+                  </button>
+                  <button class="btn btn-success" id="btn-resume-bot" style="display: none; background: #16a34a; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                    <i class="fa-solid fa-robot"></i> ▶ Return Control to Bot
+                  </button>
+                </div>
+              </div>
+
+              <!-- Interactive Controls (Visible when Human Takeover is Active) -->
+              <div id="hitl-interactive-inputs" style="display: none; align-items: center; gap: 8px; flex-wrap: wrap; background: #0f172a; padding: 10px; border-radius: 6px; border: 1px dashed #3b82f6;">
+                <span style="color: #60a5fa; font-weight: 600; font-size: 13px;"><i class="fa-solid fa-hand"></i> Interactive Remote Control:</span>
+                <input type="text" id="hitl-remote-text" placeholder="Type text to send to remote browser..." style="background: #1e293b; color: white; border: 1px solid #475569; padding: 6px 12px; border-radius: 6px; flex: 1; min-width: 200px;">
+                <button class="btn" id="btn-send-remote-text" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;"><i class="fa-solid fa-paper-plane"></i> Send Text</button>
+                <button class="btn" id="btn-send-enter-key" style="background: #475569; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;"><i class="fa-solid fa-keyboard"></i> Press Enter</button>
+                <button class="btn" id="btn-send-tab-key" style="background: #475569; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">Press Tab</button>
+                <span style="color: #94a3b8; font-size: 12px; width: 100%;">💡 <strong>Tip:</strong> Click anywhere on the live video screen image above to send a physical mouse click to the remote bot browser!</span>
+              </div>
+            </div>
+
+            <!-- 2. ACTIVE BOT TELEMETRY & CONTROLS GRID -->
+            <div class="active-bot-telemetry margin-top-20" id="bot-telemetry-box">
+              <div class="telemetry-item">
+                <span class="label">Bot Display Name:</span>
+                <span class="valueHighlight" id="tel-bot-name">rycb</span>
+              </div>
+              <div class="telemetry-item">
+                <span class="label">Meeting / Webinar ID:</span>
+                <span class="valueHighlight" id="tel-meeting-id">834 1748 6366</span>
+              </div>
+              <div class="telemetry-item">
+                <span class="label">Recording Resolution:</span>
+                <span class="valueHighlight" id="tel-quality">1080p Full HD</span>
+              </div>
+              <div class="telemetry-item">
+                <span class="label">Video Output Format:</span>
+                <span class="valueHighlight" id="tel-format">.MP4</span>
+              </div>
+              <div class="telemetry-item full-width-item">
+                <span class="label">Autonomous AI Status:</span>
+                <span class="valueSuccess" id="tel-ai-status"><i class="fa-solid fa-circle-check"></i> In Meeting &amp; Auto-Clearing Banners</span>
+              </div>
+
+              <!-- Action Controls Bar -->
+              <div class="stop-bot-action-box full-width-item margin-top-16">
+                <button class="btn-slate-outline" id="btn-pause-rec">
+                  <i class="fa-solid fa-pause"></i> Pause Monitor
+                </button>
+                <button class="btn-slate-danger btn-lg" id="btn-stop-active-bot">
+                  <i class="fa-solid fa-stop"></i> Stop Bot &amp; Save Video Recording
+                </button>
+              </div>
+            </div>
+
+            <!-- 3. REAL-TIME BOT EXECUTION LOG TERMINAL -->
+            <div class="card bot-log-card margin-top-20">
+              <div class="card-header-clean">
+                <h3><i class="fa-solid fa-terminal"></i> Bot Execution Event Console</h3>
+                <span class="status-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;"><i class="fa-solid fa-bolt"></i> Real-time</span>
+              </div>
+              <div class="console-log-box" id="bot-console-log">
+                <div class="log-entry"><span class="log-time">[SYSTEM]</span> Bot Engine Ready — Waiting for dispatch from Meeting Registration tab...</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: RECORDED MEETINGS VAULT -->
+      <div id="tab-history" class="tab-pane">
+        <div class="card recordings-vault-card">
+          <!-- Top Header Bar -->
+          <div class="vault-header-bar">
+            <div class="vault-header-title">
+              <h2><i class="fa-solid fa-photo-film text-accent"></i> Recorded Meetings Library</h2>
+              <p>Manage, stream, or download full 1080p HD MP4 video captures of your Zoom meetings.</p>
+            </div>
+            <div class="vault-header-actions">
+              <a class="btn-slate-outline btn-sm" id="btn-connect-drive" href="#" title="Connect Google Drive for auto-backups">
+                <i class="fa-brands fa-google-drive"></i> Backup to Drive
+              </a>
+              <button class="btn-slate-solid btn-sm" id="btn-refresh-vault">
+                <i class="fa-solid fa-rotate"></i> Refresh Library
+              </button>
+            </div>
+          </div>
+
+          <!-- Vault Summary Stats Bar -->
+          <div class="vault-stats-bar">
+            <div class="vault-stat-item">
+              <i class="fa-solid fa-film stat-icon"></i>
+              <div>
+                <span class="stat-number" id="stat-total-count">0</span>
+                <span class="stat-label">Total Recordings</span>
+              </div>
+            </div>
+            <div class="vault-stat-item">
+              <i class="fa-solid fa-hard-drive stat-icon"></i>
+              <div>
+                <span class="stat-number" id="stat-total-size">0 MB</span>
+                <span class="stat-label">Storage Used</span>
+              </div>
+            </div>
+            <div class="vault-stat-item">
+              <i class="fa-solid fa-circle-check stat-icon text-success"></i>
+              <div>
+                <span class="stat-number" id="stat-storage-type">Local + Drive</span>
+                <span class="stat-label">Vault Storage Status</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Search & Filter Bar -->
+          <div class="vault-filter-bar">
+            <div class="vault-search-box">
+              <i class="fa-solid fa-magnifying-glass search-icon"></i>
+              <input type="text" id="vault-search-input" placeholder="Filter recordings by meeting ID or file name...">
+            </div>
+          </div>
+
+          <!-- Recordings Grid Container -->
+          <div class="recordings-grid" id="recordings-grid-container">
+            <div class="loading-state">
+              <i class="fa-solid fa-spinner fa-spin"></i> Loading recorded video library...
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: CLOUD STORAGE VAULT -->
+      <div id="tab-storage" class="tab-pane">
+        <div class="card storage-vault-card">
+          <div class="card-header-clean">
+            <div>
+              <h2><i class="fa-solid fa-cloud text-primary"></i> Private Cloud Storage Vault</h2>
+              <p>Self-hosted cloud storage for Zoom recordings, video files, and documents with public share links & fast streaming.</p>
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <button class="btn-slate-outline btn-sm" id="btn-show-server-info">
+                <i class="fa-solid fa-network-wired text-primary"></i> Server LAN Connect
+              </button>
+              <button class="btn-slate-outline btn-sm" id="btn-refresh-storage">
+                <i class="fa-solid fa-rotate"></i> Refresh Storage
+              </button>
+            </div>
+          </div>
+
+          <!-- Storage Capacity & Stats Banner -->
+          <div class="storage-metrics-banner margin-top-20">
+            <div class="storage-meter-container">
+              <div class="storage-meter-labels">
+                <span><i class="fa-solid fa-hard-drive"></i> Vault Storage Usage</span>
+                <span id="storage-usage-text">0 MB / 100 GB</span>
+              </div>
+              <div class="storage-progress-track">
+                <div class="storage-progress-fill" id="storage-progress-fill" style="width: 0%;"></div>
+              </div>
+            </div>
+            <div class="storage-stat-pills">
+              <div class="stat-pill"><i class="fa-solid fa-file-video text-info"></i> <b id="stat-video-count">0</b> Videos</div>
+              <div class="stat-pill"><i class="fa-solid fa-file-audio text-warning"></i> <b id="stat-audio-count">0</b> Audios</div>
+              <div class="stat-pill"><i class="fa-solid fa-file-lines text-success"></i> <b id="stat-doc-count">0</b> Documents</div>
+              <div class="stat-pill"><i class="fa-solid fa-server text-primary"></i> LAN IP: <b id="stat-lan-ip">192.168.29.122:3000</b></div>
+            </div>
+          </div>
+
+          <!-- Drag & Drop Upload Zone -->
+          <div class="storage-dropzone margin-top-20" id="storage-dropzone">
+            <input type="file" id="storage-file-input" multiple style="display: none;">
+            <div class="dropzone-inner" id="storage-dropzone-inner">
+              <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
+              <h3>Drag & Drop video recordings or media files here</h3>
+              <p>Supports MP4, WebM, MKV, MP3, PDF, Documents up to 2 GB per file</p>
+              <button type="button" class="btn-primary btn-sm" id="btn-browse-storage-files">
+                <i class="fa-solid fa-folder-open"></i> Browse Files to Upload
+              </button>
+            </div>
+            <div class="upload-progress-bar" id="storage-upload-progress" style="display: none;">
+              <div class="upload-progress-fill" id="storage-upload-fill" style="width: 0%;"></div>
+              <span id="storage-upload-status">Uploading files to Vault...</span>
+            </div>
+          </div>
+
+          <!-- Files Vault Header & Filter Tabs -->
+          <div class="storage-filter-bar margin-top-20">
+            <div class="storage-search-box">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="storage-search-input" placeholder="Search recordings and files in Cloud Vault...">
+            </div>
+            <div class="storage-category-pills">
+              <button class="filter-pill active" data-cat="all">All Files</button>
+              <button class="filter-pill" data-cat="video">Videos</button>
+              <button class="filter-pill" data-cat="audio">Audios</button>
+              <button class="filter-pill" data-cat="mobile_storage">Mobile Storage</button>
+              <button class="filter-pill" data-cat="document">Documents</button>
+            </div>
+          </div>
+
+          <!-- Files Vault Grid Container -->
+          <div class="storage-files-grid margin-top-20" id="storage-files-container">
+            <div class="loading-state">
+              <i class="fa-solid fa-spinner fa-spin"></i> Loading cloud storage files...
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 5: SYSTEM ADMIN USER VAULT -->
+      <div id="tab-admin" class="tab-pane">
+        <div class="card admin-vault-card">
+          <div class="card-header-clean">
+            <div>
+              <h2><i class="fa-solid fa-user-shield text-danger"></i> System Admin User Database Vault</h2>
+              <p>View and manage all registered user accounts and login credentials in the system database.</p>
+            </div>
+            <button class="btn-slate-outline btn-sm" id="btn-refresh-admin-users">
+              <i class="fa-solid fa-rotate"></i> Refresh Database Users
+            </button>
+          </div>
+
+          <div class="admin-users-table-container margin-top-20">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>User Full Name</th>
+                  <th>User ID / Email Address</th>
+                  <th>Password</th>
+                  <th>Registration Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-table-body">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Video Playback Modal -->
+  <div class="modal-overlay" id="video-modal-overlay" style="display: none;">
+    <div class="modal-card video-player-card">
+      <div class="modal-header">
+        <h3 id="modal-video-title">Recorded Meeting Playback</h3>
+        <button class="modal-close-btn" id="btn-close-video-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <video id="modal-video-element" controls style="width: 100%; max-height: 500px; border-radius: 8px;">
+          Your browser does not support HTML5 video streaming.
+        </video>
+      </div>
+    </div>
+  </div>
+
+  <!-- Server Not Responding Modal -->
+  <div class="modal-overlay" id="server-error-modal-overlay" style="display: none; z-index: 10000; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px);">
+    <div class="modal-card" style="max-width: 480px; text-align: center; border-top: 4px solid #ef4444; padding: 28px 24px; background: rgba(30, 41, 59, 0.95); border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
+      <div style="font-size: 42px; color: #ef4444; margin-bottom: 12px;">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+      <h3 style="margin: 0 0 8px 0; font-size: 1.25rem; font-weight: 700; color: #f8fafc;" id="server-error-modal-title">Web Page / Server Not Responding</h3>
+      <p style="color: #94a3b8; font-size: 0.95rem; margin-bottom: 24px; line-height: 1.5;" id="server-error-modal-message">
+        The web page / server is currently not responding. Do you want to wait for it to recover, or reload the page?
+      </p>
+      <div style="display: flex; gap: 12px; justify-content: center;">
+        <button id="btn-server-modal-wait" class="btn btn-secondary" style="padding: 10px 20px; flex: 1; border-radius: 8px; font-weight: 600; cursor: pointer;">
+          <i class="fa-solid fa-hourglass-half"></i> Wait
+        </button>
+        <button id="btn-server-modal-reload" class="btn btn-primary" style="padding: 10px 20px; flex: 1; background: linear-gradient(135deg, #ef4444, #dc2626); border: none; border-radius: 8px; font-weight: 600; cursor: pointer; color: white;">
+          <i class="fa-solid fa-rotate-right"></i> Reload Page
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Server & Android Connect Modal -->
+  <div class="modal-overlay" id="server-connect-modal-overlay" style="display: none;">
+    <div class="modal-card" style="max-width: 580px; padding: 28px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px;">
+      <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 16px; margin-bottom: 20px;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 10px;">
+          <i class="fa-solid fa-server text-primary"></i> Server & Android App Connection
+        </h3>
+        <button class="modal-close-btn" id="btn-close-server-connect">&times;</button>
+      </div>
+      <div class="modal-body" style="font-size: 0.95rem; line-height: 1.6; color: #cbd5e1;">
+        <p>This computer is functioning as the <b>Central Server & Cloud Storage Vault</b> for your network.</p>
+
+        <div style="background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 14px 18px; margin: 16px 0;">
+          <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px;">LOCAL NETWORK (LAN) ACCESS URL:</div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+            <code style="font-size: 1.1rem; color: #38bdf8; font-weight: 700;" id="modal-lan-url">http://192.168.29.122:3000</code>
+            <button class="btn-slate-outline btn-sm" id="btn-copy-lan-url" style="white-space: nowrap;">
+              <i class="fa-solid fa-copy"></i> Copy
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px;">
+          <h4 style="margin: 0 0 8px 0; color: #f8fafc;"><i class="fa-brands fa-android text-success"></i> Connect Android Phone / Tablet:</h4>
+          <ol style="padding-left: 20px; margin: 0; color: #94a3b8;">
+            <li>Make sure your phone is connected to the <b>same Wi-Fi network</b> as this PC.</li>
+            <li>In the Android App settings, enter Server Base URL: <code style="color: #38bdf8;" id="modal-lan-url-code">http://192.168.29.122:3000</code></li>
+            <li>All meeting recordings triggered on your phone or on this PC will stream and save directly to this Cloud Vault!</li>
+          </ol>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 12px; justify-content: flex-end;">
+          <a href="/AiZoomParticipant-recorder.apk" download class="btn-primary btn-sm" style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-download"></i> Download Android APK
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share Link Generation Modal -->
+  <div class="modal-overlay" id="share-modal-overlay" style="display: none;">
+    <div class="modal-card" style="max-width: 520px; padding: 28px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px;">
+      <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 16px; margin-bottom: 20px;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 10px;">
+          <i class="fa-solid fa-share-nodes text-primary"></i> Create Public Share Link
+        </h3>
+        <button class="modal-close-btn" id="btn-close-share-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 6px;">File to Share:</label>
+          <div style="font-weight: 600; color: #f8fafc;" id="share-modal-filename">recording.mp4</div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 6px;">Link Expiration:</label>
+          <select id="share-expiry-select" class="form-select" style="width: 100%; padding: 10px; background: #1e293b; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white;">
+            <option value="24" selected>Expires in 24 Hours</option>
+            <option value="1">Expires in 1 Hour</option>
+            <option value="168">Expires in 7 Days</option>
+            <option value="0">Never Expires (Permanent)</option>
+          </select>
+        </div>
+
+        <div id="share-result-container" style="display: none; margin-top: 20px;">
+          <label style="display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 6px;">Public Share URL:</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="share-result-url" readonly style="flex: 1; padding: 10px; background: #0f172a; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #38bdf8; font-weight: 600;">
+            <button class="btn-primary btn-sm" id="btn-copy-share-url">
+              <i class="fa-solid fa-copy"></i> Copy
+            </button>
+          </div>
+          <p style="font-size: 0.8rem; color: #10b981; margin-top: 6px;"><i class="fa-solid fa-check"></i> Anyone with this link can stream & download this file without an account!</p>
+        </div>
+
+        <div style="margin-top: 24px; display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="btn-slate-outline btn-sm" id="btn-generate-share-link">
+            <i class="fa-solid fa-link"></i> Generate Link
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
