@@ -54,8 +54,8 @@ object ServerRecorderClient {
     private const val PREFS_NAME = "server_recorder_config"
     private const val KEY_BASE_URL = "server_base_url"
 
-    // Default backend URL: Auto-configured to your PC's local Wi-Fi IP
-    const val DEFAULT_BASE_URL = "http://192.168.29.122:3000"
+    // Default backend URL: Auto-configured to your 24/7 Render Cloud Server
+    const val DEFAULT_BASE_URL = "https://zoom-ai-participent.onrender.com"
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
