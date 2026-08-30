@@ -1,16 +1,18 @@
 [
   {
-    "name": "Naniv",
+    "name": "Venkey",
     "email": "naniv401@gmail.com",
     "userId": "naniv401@gmail.com",
-    "password": "$2a$12$jbpa2eTqn1fsC6yyJEI1jueWDUQdnURNUmJA0U3c47GJgMP.6BUgq",
-    "createdAt": "2026-08-08T15:39:27.040Z"
+    "password": "$2a$12$BwpJQY3EiwWPNlehj2I6MOl0IGoXvDE/qgERPyyX6szTsw0TOgane",
+    "role": "USER",
+    "createdAt": "2026-08-30T16:00:00.000Z"
   },
   {
-    "name": "Demo User",
-    "email": "user@gmail.com",
-    "userId": "user@gmail.com",
-    "password": "$2a$12$1JqKmLIS7MQjHVos.X0jGenUW96VydfE8/LiQ33OAThve/KVjlEDa",
-    "createdAt": "2026-08-08T15:39:27.041Z"
+    "name": "Arjun",
+    "email": "arjun@gmail.com",
+    "userId": "arjun@gmail.com",
+    "password": "$2a$12$5RGKaMqlLUJnPvPzApKs9OpiSG2iUwobd0s.vARvPFMNmWikFjP76",
+    "role": "USER",
+    "createdAt": "2026-08-30T16:00:00.000Z"
   }
 ]
