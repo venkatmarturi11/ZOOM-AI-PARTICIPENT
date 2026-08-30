@@ -234,13 +234,17 @@ class AudioEncoder(
             }
         }
 
-        // 2. High-fidelity hardware voice communication & speaker capture fallback
-        val sources = listOf(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.DEFAULT,
-            MediaRecorder.AudioSource.CAMCORDER,
-        )
+        // 2. High-fidelity hardware speaker & mic capture (Unprocessed & direct mic to avoid hardware echo cancellation suppression)
+        val sources = mutableListOf<Int>().apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                add(MediaRecorder.AudioSource.UNPROCESSED)
+            }
+            add(MediaRecorder.AudioSource.MIC)
+            add(MediaRecorder.AudioSource.DEFAULT)
+            add(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+            add(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            add(MediaRecorder.AudioSource.CAMCORDER)
+        }
 
         for (src in sources) {
             try {
