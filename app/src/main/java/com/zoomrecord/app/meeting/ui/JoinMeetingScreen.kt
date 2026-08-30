@@ -667,7 +667,7 @@ fun JoinMeetingScreen(
 
             Spacer(modifier = Modifier.height(28.dp))
 
-            // ── Primary Action 1: Website Recorder (Audio & Video, Zero Phone Lag) ───
+            // ── Primary Action 1: Cloud Server Recorder (Flawless Audio & Video) ───
             Button(
                 onClick = {
                     val link = uiState.meetingLinkOrId.ifBlank { uiState.meetingNumber }
@@ -686,11 +686,11 @@ fun JoinMeetingScreen(
                             isServerLaunching = false
                             if (res.isSuccess) {
                                 if (showLiveBotScreen) {
-                                    android.widget.Toast.makeText(context, "🚀 Sent to Website Recorder! Opening Live Screen...", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "🚀 Sent to Cloud Recorder! Opening Live Screen...", android.widget.Toast.LENGTH_SHORT).show()
                                     onNavigateToLiveBot()
                                 } else {
                                     isBackgroundRecordingActive = true
-                                    android.widget.Toast.makeText(context, "🟢 Recording in Background! Output file will save on finish.", android.widget.Toast.LENGTH_LONG).show()
+                                    android.widget.Toast.makeText(context, "🟢 Cloud Recording Active! Output file will download to your phone when finished.", android.widget.Toast.LENGTH_LONG).show()
                                 }
                             } else {
                                 android.widget.Toast.makeText(context, "Failed: ${res.exceptionOrNull()?.message}", android.widget.Toast.LENGTH_LONG).show()
@@ -701,14 +701,14 @@ fun JoinMeetingScreen(
                 enabled = viewModel.canStartBot && !isServerLaunching,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp)
+                    .height(56.dp)
                     .shadow(12.dp, shape = RoundedCornerShape(16.dp), spotColor = Color(0xFF059669)),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
                 shape = RoundedCornerShape(16.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = if (isServerLaunching) "⏳ Sending to Website..." else "🌐 Record on Website (Audio & Video)",
+                        text = if (isServerLaunching) "⏳ Sending to Cloud..." else "🚀 Record via Cloud Bot (Flawless Audio/Video)",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
