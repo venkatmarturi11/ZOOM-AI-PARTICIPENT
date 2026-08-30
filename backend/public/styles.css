@@ -45,7 +45,6 @@ body {
    ========================================================================== */
 
 .slate-login-outer-wrapper {
-  display: flex;
   min-height: 100vh;
   min-height: 100dvh;
   width: 100vw;
@@ -54,9 +53,7 @@ body {
   left: 0;
   z-index: 999999;
   background: var(--slate-outer-bg);
-  align-items: flex-start;
-  justify-content: center;
-  padding: 32px 16px;
+  padding: 24px 16px 100px 16px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -64,25 +61,25 @@ body {
 .slate-login-modal-card {
   width: 100%;
   max-width: 860px;
-  min-height: 480px;
   background: #ffffff;
   border-radius: 24px;
   display: flex;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-  margin: auto;
+  margin: 0 auto;
 }
 
 /* Left Dark Slate Panel */
 .slate-left-panel {
   width: 38%;
   background: var(--dark-slate-panel);
-  padding: 40px 32px;
+  padding: 32px 24px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   color: #ffffff;
   position: relative;
+  border-radius: 24px 0 0 24px;
 }
 
 .slate-brand-logo {
@@ -176,10 +173,11 @@ body {
 .pastel-right-panel {
   width: 62%;
   background: var(--warm-pastel-bg);
-  padding: 28px 36px;
+  padding: 28px 32px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  border-radius: 0 24px 24px 0;
 }
 
 .pastel-headline {
