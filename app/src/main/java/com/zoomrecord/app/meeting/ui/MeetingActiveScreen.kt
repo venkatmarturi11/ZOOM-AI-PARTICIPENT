@@ -1412,15 +1412,16 @@ private fun injectAutonomousBot(
 
             // ── Human-like Input Dispatcher (Simulates Keystroke Events) ────
             function setField(input, val) {
-                if (!input || !val || !isElementVisible(input)) return;
+                if (!input || val === undefined || val === null) return;
                 try {
-                    if (input.value !== val) {
-                        input.focus();
+                    var strVal = String(val);
+                    if (input.value !== strVal) {
+                        try { input.focus(); } catch(_) {}
                         var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
                         if (nativeSetter && nativeSetter.set) {
-                            nativeSetter.set.call(input, val);
+                            nativeSetter.set.call(input, strVal);
                         } else {
-                            input.value = val;
+                            input.value = strVal;
                         }
                         input.dispatchEvent(new Event('focus', { bubbles: true }));
                         input.dispatchEvent(new Event('keydown', { bubbles: true }));
@@ -1783,7 +1784,7 @@ private fun injectAutonomousBot(
                         }
 
                         // When already in the meeting room, NEVER click mute/audio buttons (avoids "Host has muted you" infinite modal loop)
-                            // B. Registration Form Submission ("Register and Join", "Register", "Submit") - Debounced to prevent 403
+                            // B. Registration Form Submission ("Register and Join", "Register", "Submit")
                             if (btnText.includes('register and join') ||
                                 btnText.includes('register') ||
                                 btnText.includes('submit registration') ||
@@ -1791,13 +1792,16 @@ private fun injectAutonomousBot(
                                 btnClass.includes('btn-register') ||
                                 btnId === 'btn-register' ||
                                 btnId === 'btnsubmit' ||
-                                btnId === 'btn-submit') {
+                                btnId === 'btn-submit' ||
+                                btnId.includes('submit') ||
+                                (btn.type && btn.type.toLowerCase() === 'submit')) {
                                 var nowReg = Date.now();
-                                if (!window.__zoomRegisterFormSubmitted || (nowReg - window.__zoomRegisterFormSubmitted > 10000)) {
+                                if (!window.__zoomRegisterFormSubmitted || (nowReg - window.__zoomRegisterFormSubmitted > 3000)) {
                                     window.__zoomRegisterFormSubmitted = nowReg;
-                                    setTimeout(function() {
-                                        try { btn.click(); } catch(e) {}
-                                    }, 1000);
+                                    try {
+                                        btn.click();
+                                        btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                                    } catch(e) {}
                                 }
                             }
 
