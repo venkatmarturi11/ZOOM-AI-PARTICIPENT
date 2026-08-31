@@ -1490,88 +1490,26 @@ private fun injectAutonomousBot(
                     var curHref = (window.location.href || '').toLowerCase();
                     var isSignInPage = curHref.includes('/signin') || curHref.includes('/login');
 
-                    // ── A1. Zoom Sign-In Page -> Click "Sign in with Google" ──
+                    // ── A. Zoom Native Direct Sign-In (Email + Password) ────────
                     if (isSignInPage) {
-                        var googleBtn = document.querySelector('a.btn-google, button.btn-google, a[href*="google_oauth"], a[href*="google"], button[id*="google" i], div.btn-google');
-                        if (!googleBtn) {
-                            var allBtns = document.querySelectorAll('button, a, div[role="button"]');
-                            for (var b = 0; b < allBtns.length; b++) {
-                                var txt = (allBtns[b].textContent || allBtns[b].getAttribute('aria-label') || '').trim().toLowerCase();
-                                if (txt.includes('google') || txt === 'continue with google' || txt === 'sign in with google') {
-                                    googleBtn = allBtns[b];
-                                    break;
-                                }
-                            }
+                        var emailField = document.querySelector('input#email, input[name="email"], input[type="email"], input#email_input, input[placeholder*="email" i]');
+                        var pwdField = document.querySelector('input#password, input[name="password"], input[type="password"], input[placeholder*="password" i]');
+                        var signInBtn = document.querySelector('button.signin, button#signin, button[type="submit"], .btn-signin, #btnSubmit, button[aria-label*="Sign In" i], .submit-btn');
+
+                        if (emailField) {
+                            setField(emailField, "$cleanEmail");
                         }
-                        if (googleBtn) {
-                            var nowG = Date.now();
-                            if (!window.__zoomGoogleBtnClicked || (nowG - window.__zoomGoogleBtnClicked > 2500)) {
-                                window.__zoomGoogleBtnClicked = nowG;
-                                try { googleBtn.click(); } catch(e) {}
-                            }
-                            return;
-                        } else {
-                            // Direct navigation to Zoom's Google OAuth endpoint
-                            window.location.href = "https://zoom.us/google_oauth";
-                            return;
+                        if (pwdField) {
+                            setField(pwdField, "$cleanZoomPwd");
                         }
-                    }
 
-                    // ── A2. Google Accounts Sign-In Automation ──────────────────
-                    var isGoogleAuthPage = curHref.includes('accounts.google.com') || curHref.includes('google.com/signin') || curHref.includes('google.com/v3/signin');
-                    if (isGoogleAuthPage) {
-                        // Check if password field is visible on Google page (Step 2)
-                        var googlePassInput = document.querySelector('input[name="Passwd"], input[name="password"], input[type="password"]');
-                        var isPassVisible = googlePassInput && (googlePassInput.offsetWidth > 0 || googlePassInput.offsetHeight > 0 || window.getComputedStyle(googlePassInput).visibility !== 'hidden');
-
-                        if (!isPassVisible) {
-                            // Step 1: Enter Google Email (228a1a4255@risekrishnasaiprakasam.edu.in)
-                            var googleEmailInput = document.querySelector('input#identifierId, input[type="email"], input[name="identifier"]');
-                            if (googleEmailInput) {
-                                setField(googleEmailInput, "$cleanEmail");
-                            }
-
-                            // Click Google Next button
-                            var nowG1 = Date.now();
-                            if (!window.__googleNextClicked || (nowG1 - window.__googleNextClicked > 2000)) {
-                                var nextBtn = document.querySelector('#identifierNext, button#identifierNext, button[jsname="LgbsSe"]');
-                                if (!nextBtn) {
-                                    var allGButtons = document.querySelectorAll('button');
-                                    for (var gi = 0; gi < allGButtons.length; gi++) {
-                                        var gbTxt = (allGButtons[gi].textContent || '').trim().toLowerCase();
-                                        if (gbTxt === 'next' || allGButtons[gi].id === 'identifierNext') {
-                                            nextBtn = allGButtons[gi];
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (nextBtn) {
-                                    window.__googleNextClicked = nowG1;
-                                    try { nextBtn.click(); } catch(e) {}
-                                }
-                            }
-                        } else {
-                            // Step 2: Enter Google Password (naniv401)
-                            setField(googlePassInput, "$cleanZoomPwd");
-
-                            // Click Google Password Next button
-                            var nowG2 = Date.now();
-                            if (!window.__googlePassNextClicked || (nowG2 - window.__googlePassNextClicked > 2000)) {
-                                var passNextBtn = document.querySelector('#passwordNext, button#passwordNext, button[jsname="LgbsSe"]');
-                                if (!passNextBtn) {
-                                    var allGButtons2 = document.querySelectorAll('button');
-                                    for (var gi2 = 0; gi2 < allGButtons2.length; gi2++) {
-                                        var gbTxt2 = (allGButtons2[gi2].textContent || '').trim().toLowerCase();
-                                        if (gbTxt2 === 'next' || allGButtons2[gi2].id === 'passwordNext') {
-                                            passNextBtn = allGButtons2[gi2];
-                                            break;
-                                        }
-                                    }
-                                }
-                                if (passNextBtn) {
-                                    window.__googlePassNextClicked = nowG2;
-                                    try { passNextBtn.click(); } catch(e) {}
-                                }
+                        if (emailField && pwdField && emailField.value && pwdField.value && signInBtn) {
+                            var nowSI = Date.now();
+                            if (!window.__zoomDirectSignInClicked || (nowSI - window.__zoomDirectSignInClicked > 3500)) {
+                                window.__zoomDirectSignInClicked = nowSI;
+                                setTimeout(function() {
+                                    try { signInBtn.click(); } catch(e) {}
+                                }, 600);
                             }
                         }
                         return;
