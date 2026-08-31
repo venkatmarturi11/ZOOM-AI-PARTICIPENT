@@ -38,6 +38,7 @@ object ZoomLinkParser {
             trimmed.contains("/webinar/register", ignoreCase = true)
         ) {
             var extractedId = ""
+            var extractedPwd = ""
             try {
                 val uri = Uri.parse(trimmed)
                 for (seg in uri.pathSegments) {
@@ -47,14 +48,23 @@ object ZoomLinkParser {
                         break
                     }
                 }
+                extractedPwd = uri.getQueryParameter("pwd") ?: ""
             } catch (_: Exception) {}
 
-            return ParsedMeeting(
-                meetingNumber = extractedId.ifEmpty { "Registration" },
-                password = "",
-                originalInput = trimmed,
-                webClientUrl = trimmed,
-            )
+            if (extractedId.isNotEmpty()) {
+                val directUrl = buildWebClientUrl(
+                    meetingNumber = extractedId,
+                    password = extractedPwd,
+                    displayName = displayName,
+                    originalInput = trimmed
+                )
+                return ParsedMeeting(
+                    meetingNumber = extractedId,
+                    password = extractedPwd,
+                    originalInput = trimmed,
+                    webClientUrl = directUrl,
+                )
+            }
         }
 
         // Check if input is a URL
