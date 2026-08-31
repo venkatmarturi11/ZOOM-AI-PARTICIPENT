@@ -1845,8 +1845,7 @@ private fun injectAutonomousBot(
                         }
 
                         // When already in the meeting room, NEVER click mute/audio buttons (avoids "Host has muted you" infinite modal loop)
-                        if (!inActiveMeeting) {
-                            // B. Registration Form Submission ("Register and Join", "Register", "Submit")
+                            // B. Registration Form Submission ("Register and Join", "Register", "Submit") - Debounced to prevent 403
                             if (btnText.includes('register and join') ||
                                 btnText.includes('register') ||
                                 btnText.includes('submit registration') ||
@@ -1855,7 +1854,13 @@ private fun injectAutonomousBot(
                                 btnId === 'btn-register' ||
                                 btnId === 'btnsubmit' ||
                                 btnId === 'btn-submit') {
-                                try { btn.click(); } catch(e) {}
+                                var nowReg = Date.now();
+                                if (!window.__zoomRegisterFormSubmitted || (nowReg - window.__zoomRegisterFormSubmitted > 10000)) {
+                                    window.__zoomRegisterFormSubmitted = nowReg;
+                                    setTimeout(function() {
+                                        try { btn.click(); } catch(e) {}
+                                    }, 1000);
+                                }
                             }
 
                             // C. Post-Registration Direct Join Links
