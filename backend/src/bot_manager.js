@@ -1218,9 +1218,13 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
 
   let rawVideoSaved = false;
 
+  let rawAudioPath = (bot && bot.rawAudioPath) || path.join(RECORDINGS_DIR, `raw_audio_${botTarget}.webm`);
   if (bot) {
     bot.status = 'STOPPED';
     try {
+      if (bot.audioWriteStream) {
+        try { bot.audioWriteStream.end(); } catch (e) {}
+      }
       if (bot.stopLoop) {
         bot.stopLoop();
       }
@@ -1310,7 +1314,7 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
   saveRecordingsMeta();
 
   finishRecordingProcessing({
-    rawWebmPath, filePath, fileName, targetExt, quality, meetingId, botName,
+    rawWebmPath, rawAudioPath, filePath, fileName, targetExt, quality, meetingId, botName,
     processingId, botOwnerId, telegramChatId, alreadySavedAsWebm: targetExt === 'webm'
   }).catch(err => console.error('[Bot Engine] Background recording processing failed:', err));
 
@@ -1345,7 +1349,7 @@ app.post('/api/bot/stop', async (req, res) => {
 // the recordingsMeta entry from "PROCESSING" to its final state. Runs after
 // the HTTP response has already gone out, so ffmpeg time no longer blocks
 // the UI.
-async function finishRecordingProcessing({ rawWebmPath, filePath, fileName, targetExt, quality, meetingId, botName, processingId, botOwnerId, telegramChatId, alreadySavedAsWebm }) {
+async function finishRecordingProcessing({ rawWebmPath, rawAudioPath, filePath, fileName, targetExt, quality, meetingId, botName, processingId, botOwnerId, telegramChatId, alreadySavedAsWebm }) {
   let videoExists = false;
   let usedFallbackExt = false;
 
@@ -1353,10 +1357,13 @@ async function finishRecordingProcessing({ rawWebmPath, filePath, fileName, targ
     fs.renameSync(rawWebmPath, filePath);
     videoExists = fs.existsSync(filePath);
   } else {
-    const transcodeOk = await convertVideoWithFFmpeg(rawWebmPath, filePath, targetExt);
+    const transcodeOk = await convertVideoWithFFmpeg(rawWebmPath, rawAudioPath, filePath, targetExt);
     if (transcodeOk && fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
       videoExists = true;
       try { fs.unlinkSync(rawWebmPath); } catch (e) {}
+      if (rawAudioPath && fs.existsSync(rawAudioPath)) {
+        try { fs.unlinkSync(rawAudioPath); } catch (e) {}
+      }
     } else {
       // Fallback if ffmpeg is missing or failed: copy raw webm capture directly to target filePath (.mp4)
       if (fs.existsSync(rawWebmPath) && fs.statSync(rawWebmPath).size > 0) {
@@ -1430,29 +1437,42 @@ async function backupRecordingToDriveIfConnected(fileName, filePath, userId) {
   }
 }
 
-// Transcodes a real Playwright webm capture into the requested container/codec.
-// Returns true only on a genuine, verified transcode — never fabricates output.
-function convertVideoWithFFmpeg(inputPath, outputPath, format) {
+// Transcodes real Playwright video webm + captured digital audio webm into the final container.
+function convertVideoWithFFmpeg(inputPath, audioPath, outputPath, format) {
   return new Promise((resolve) => {
     let ffmpegPath = 'ffmpeg';
     try {
       ffmpegPath = require('ffmpeg-static') || 'ffmpeg';
     } catch (e) {}
 
-    const args = format === 'mkv'
-      ? ['-y', '-i', inputPath, '-c', 'copy', outputPath]
-      : ['-y', '-i', inputPath, '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '0', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-c:a', 'aac', outputPath];
+    const hasAudio = audioPath && fs.existsSync(audioPath) && fs.statSync(audioPath).size > 500;
+    let args;
+    if (hasAudio) {
+      console.log(`[FFmpeg] Merging video with digital audio stream (${fs.statSync(audioPath).size} bytes audio) -> ${outputPath}`);
+      args = format === 'mkv'
+        ? ['-y', '-i', inputPath, '-i', audioPath, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', outputPath]
+        : ['-y', '-i', inputPath, '-i', audioPath, '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '0', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-shortest', outputPath];
+    } else {
+      console.log(`[FFmpeg] Encoding video with synthesized silent audio track -> ${outputPath}`);
+      args = format === 'mkv'
+        ? ['-y', '-i', inputPath, '-c', 'copy', outputPath]
+        : ['-y', '-i', inputPath, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '0', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-shortest', outputPath];
+    }
 
     let ff;
     try {
       ff = spawn(ffmpegPath, args);
     } catch (e) {
+      console.error('[FFmpeg Spawn Error]', e);
       return resolve(false);
     }
     ff.on('close', (code) => {
       resolve(code === 0 && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0);
     });
-    ff.on('error', () => resolve(false));
+    ff.on('error', (err) => {
+      console.error('[FFmpeg Execution Error]', err);
+      resolve(false);
+    });
   });
 }
 
@@ -2044,14 +2064,93 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
       } catch (e) {}
     }, displayName);
 
+    // ── In-Page Digital Audio Tap for Chromium ───────────────────────────
+    const rawAudioPath = path.join(RECORDINGS_DIR, `raw_audio_${botId}.webm`);
+    const audioWriteStream = fs.createWriteStream(rawAudioPath, { flags: 'a' });
+
+    await context.addInitScript(() => {
+      window.__setupAudioTap = function() {
+        if (window.__audioTapRunning) return;
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return;
+          const ctx = new AudioCtx();
+          const dest = ctx.createMediaStreamDestination();
+          window.__audioTapDest = dest;
+          window.__audioTapCtx = ctx;
+
+          // 1. Intercept all <audio> and <video> elements
+          const origPlay = HTMLMediaElement.prototype.play;
+          HTMLMediaElement.prototype.play = function() {
+            try {
+              if (!this.__tapped && dest && ctx) {
+                this.__tapped = true;
+                const src = ctx.createMediaElementSource(this);
+                src.connect(dest);
+                src.connect(ctx.destination);
+              }
+            } catch (err) {}
+            return origPlay.apply(this, arguments);
+          };
+
+          // 2. Intercept incoming WebRTC remote audio tracks
+          if (window.RTCPeerConnection) {
+            const origSetRemote = RTCPeerConnection.prototype.setRemoteDescription;
+            RTCPeerConnection.prototype.setRemoteDescription = function() {
+              this.addEventListener('track', (e) => {
+                try {
+                  if (e.track && e.track.kind === 'audio' && ctx && dest) {
+                    const stream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+                    const src = ctx.createMediaStreamSource(stream);
+                    src.connect(dest);
+                  }
+                } catch (e) {}
+              });
+              return origSetRemote.apply(this, arguments);
+            };
+          }
+
+          // 3. Start MediaRecorder on the destination stream
+          if (dest && dest.stream) {
+            const rec = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' });
+            rec.ondataavailable = async (ev) => {
+              if (ev.data && ev.data.size > 0 && window.onZoomAudioChunk) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const b64 = (reader.result || '').split(',')[1];
+                  if (b64) window.onZoomAudioChunk(b64);
+                };
+                reader.readAsDataURL(ev.data);
+              }
+            };
+            rec.start(1000);
+            window.__audioTapRunning = true;
+          }
+        } catch (e) {}
+      };
+
+      window.addEventListener('DOMContentLoaded', () => window.__setupAudioTap());
+      setTimeout(() => window.__setupAudioTap(), 1000);
+    });
+
     const page = await context.newPage();
     await page.bringToFront().catch(() => {});
+
+    await page.exposeFunction('onZoomAudioChunk', (base64Chunk) => {
+      try {
+        if (base64Chunk && audioWriteStream && !audioWriteStream.destroyed) {
+          audioWriteStream.write(Buffer.from(base64Chunk, 'base64'));
+        }
+      } catch (e) {}
+    }).catch(() => {});
 
     const botInfo = activeBots.get(botId);
     if (botInfo) {
       botInfo.browser = browser;
       botInfo.context = context;
       botInfo.page = page;
+      botInfo.rawAudioPath = rawAudioPath;
+      botInfo.audioWriteStream = audioWriteStream;
     }
 
     console.log(`[Bot ${botId}] Navigating directly to Zoom Web Client meeting URL: ${directWcUrl}`);
