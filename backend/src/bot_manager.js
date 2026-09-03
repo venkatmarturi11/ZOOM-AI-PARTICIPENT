@@ -674,7 +674,7 @@ app.post('/api/zoom/auth/logout', authenticate, (req, res) => {
 function buildZoomUrls(rawUrl, passcodeStr, botDisplayName = 'rycb') {
   let cleanUrl = (rawUrl || '').trim();
   let meetingId = '';
-  let pwd = (passcodeStr || '').trim();
+  let manualPasscode = (passcodeStr || '').trim();
   let tk = '';
   let name = (botDisplayName || 'rycb').trim();
 
@@ -682,17 +682,17 @@ function buildZoomUrls(rawUrl, passcodeStr, botDisplayName = 'rycb') {
   const parsed = meetingParser.parseMeetingInput(cleanUrl);
   if (parsed && parsed.success && parsed.meeting) {
     meetingId = parsed.meeting.meetingId;
-    if (!pwd && parsed.meeting.passcode) pwd = parsed.meeting.passcode;
+    if (!manualPasscode && parsed.meeting.passcode) manualPasscode = parsed.meeting.passcode;
   }
 
-  // Domain extraction (e.g. us06web.zoom.us, us02web.zoom.us, zoom.us)
+  // Domain extraction (e.g. us05web.zoom.us, us06web.zoom.us, us02web.zoom.us, zoom.us)
   const domainMatch = cleanUrl.match(/https?:\/\/([^\/]+)/i);
   let domain = domainMatch ? domainMatch[1] : 'zoom.us';
   if (!domain.includes('zoom.us')) {
     domain = 'zoom.us';
   }
 
-  // Match Meeting or Webinar ID (/j/, /w/, /wc/, /wc/join/, /s/, /meeting/register/, /webinar/register/, confno=, or raw digits)
+  // Match Meeting or Webinar ID
   const idMatch = cleanUrl.match(/\/(?:j|w|wc|wc\/join|s|meeting\/register|webinar\/register)\/(\d{9,11})/) ||
                   cleanUrl.match(/[?&]confno=(\d{9,11})/i) ||
                   cleanUrl.match(/\b\d{9,11}\b/) ||
@@ -701,10 +701,19 @@ function buildZoomUrls(rawUrl, passcodeStr, botDisplayName = 'rycb') {
     meetingId = idMatch[1] || idMatch[0];
   }
 
-  if (!pwd) {
-    const pwdMatch = cleanUrl.match(/[?&](?:pwd|password)=([^&]+)/i);
-    if (pwdMatch) pwd = decodeURIComponent(pwdMatch[1]);
+  let urlPwd = '';
+  const pwdMatch = cleanUrl.match(/[?&](?:pwd|password)=([^&]+)/i);
+  if (pwdMatch) {
+    urlPwd = decodeURIComponent(pwdMatch[1]);
   }
+
+  // If manual passcode wasn't explicitly given, check if urlPwd is a short plaintext passcode
+  if (!manualPasscode && urlPwd && urlPwd.length <= 10 && !urlPwd.includes('.')) {
+    manualPasscode = urlPwd;
+  }
+
+  // Effective password for query string: prefer the URL token if from full link, otherwise manual passcode
+  const effectivePwd = urlPwd || manualPasscode;
 
   const tkMatch = cleanUrl.match(/[?&]tk=([^&]+)/i);
   if (tkMatch) {
@@ -719,7 +728,7 @@ function buildZoomUrls(rawUrl, passcodeStr, botDisplayName = 'rycb') {
   const typePath = isWebinar ? 'w' : 'j';
 
   const queryParts = ['prefer=1'];
-  if (pwd) queryParts.push(`pwd=${encodeURIComponent(pwd)}`);
+  if (effectivePwd) queryParts.push(`pwd=${encodeURIComponent(effectivePwd)}`);
   if (tk) queryParts.push(`tk=${encodeURIComponent(tk)}`);
   if (name) {
     queryParts.push(`un=${encodeURIComponent(name)}`);
@@ -731,7 +740,7 @@ function buildZoomUrls(rawUrl, passcodeStr, botDisplayName = 'rycb') {
   const standardUrl = `https://${domain}/${typePath}/${meetingId}${queryString}`;
   const directWcUrl = `https://app.zoom.us/wc/join/${meetingId}${queryString}`;
 
-  return { meetingId, pwd, tk, domain, isWebinar, standardUrl, directWcUrl };
+  return { meetingId, pwd: effectivePwd, manualPasscode, urlPwd, tk, domain, isWebinar, standardUrl, directWcUrl };
 }
 
 
@@ -2174,10 +2183,14 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
       botInfo.audioWriteStream = audioWriteStream;
     }
 
-    console.log(`[Bot ${botId}] Navigating directly to Zoom Web Client meeting URL: ${directWcUrl}`);
-    await page.goto(directWcUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(async () => {
-      console.log(`[Bot ${botId}] Fallback to standard Zoom URL: ${standardUrl}`);
-      await page.goto(standardUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    const hasFullInviteToken = standardUrl && standardUrl.includes('pwd=');
+    const primaryNavUrl = hasFullInviteToken ? standardUrl : directWcUrl;
+    const secondaryNavUrl = hasFullInviteToken ? directWcUrl : standardUrl;
+
+    console.log(`[Bot ${botId}] Navigating to Zoom meeting URL (${hasFullInviteToken ? 'Invite Link with Token' : 'Direct WC'}): ${primaryNavUrl}`);
+    await page.goto(primaryNavUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(async () => {
+      console.log(`[Bot ${botId}] Fallback to secondary Zoom URL: ${secondaryNavUrl}`);
+      await page.goto(secondaryNavUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
     });
 
     await page.waitForTimeout(1500);
@@ -2471,9 +2484,18 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
 
 
 
-        // STEP 1: On landing page — click "Join from browser" link
+        // STEP 1: On landing page — click "Launch Meeting" and "Join from browser" link
         if (isOnLandingPage) {
-          // Try native Playwright click first
+          // If Zoom shows "Launch Meeting", click it to trigger the "Join from your browser" link
+          const launchBtn = await page.$(
+            'button:has-text("Launch Meeting"), #btn-download, a:has-text("Launch Meeting"), button.btn-primary'
+          ).catch(() => null);
+          if (launchBtn) {
+            await launchBtn.click().catch(() => {});
+            await page.waitForTimeout(600);
+          }
+
+          // Try native Playwright click on "Join from your browser"
           const joinBrowserLink = await page.$(
             'a[href*="/wc/"], a:has-text("Join from Your Browser"), a:has-text("Join from your browser"), a:has-text("Join from browser")'
           ).catch(() => null);
@@ -2481,7 +2503,7 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
           if (joinBrowserLink) {
             console.log(`[Bot ${botId}] Found 'Join from browser' link, clicking...`);
             await joinBrowserLink.click({ force: true }).catch(() => {});
-            await page.waitForTimeout(300);
+            await page.waitForTimeout(1000);
           } else {
             // DOM fallback: find and click any link/button with matching text
             const clicked = await page.evaluate(() => {
@@ -2489,7 +2511,7 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
               const btn = all.find(el => {
                 const txt = (el.textContent || '').trim().toLowerCase();
                 const href = (el.getAttribute('href') || '').toLowerCase();
-                return txt.includes('join from') && txt.includes('browser') || href.includes('/wc/');
+                return (txt.includes('join from') && txt.includes('browser')) || href.includes('/wc/');
               });
               if (btn) { btn.click(); return true; }
               return false;
@@ -2525,8 +2547,9 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
           }
         }
 
-        // STEP 3: Fill passcode inputs
-        if (pwd) {
+        // STEP 3: Fill passcode inputs (only with plaintext passcodes, NOT encrypted URL hashes)
+        const isPlaintextCode = pwd && pwd.length <= 10 && !pwd.includes('.');
+        if (isPlaintextCode) {
           for (const sel of passSelectors) {
             const input = await page.$(sel).catch(() => null);
             if (input) {
