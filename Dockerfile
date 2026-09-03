@@ -27,20 +27,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure environment
-ENV PORT=3000 \
-    NODE_ENV=production \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+# Point Playwright & Puppeteer to system Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
+    PORT=3000 \
+    NODE_ENV=production
 
 WORKDIR /app
 
-# Copy root and backend packages
+# Copy packages
 COPY package*.json ./
 COPY backend/package*.json ./backend/
 
-# Install dependencies and Playwright Chromium
-RUN npm install
-RUN cd backend && npm install && npx playwright install chromium
+# Install Node dependencies
+RUN npm install --production
+RUN cd backend && npm install --production
 
 # Copy application source code
 COPY . .
@@ -51,4 +54,4 @@ RUN mkdir -p /app/backend/recordings /app/backend/data /app/backend/storage /app
 EXPOSE 3000
 
 # Start unified bot manager and web studio with virtual framebuffer
-CMD ["xvfb-run", "--server-args=-screen 0 1920x1080x24", "node", "backend/src/index.js"]
+CMD ["xvfb-run", "-a", "--server-args=-screen 0 1920x1080x24", "node", "backend/src/index.js"]

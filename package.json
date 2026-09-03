@@ -5,7 +5,6 @@
   "description": "Unified Zoom Autonomous Meeting Recorder Engine, Web Studio & Desktop App",
   "scripts": {
     "start": "node backend/src/index.js",
-    "postinstall": "cd backend && npm install && npx playwright install chromium",
     "dev": "node --watch backend/src/index.js",
     "desktop": "cd apps/desktop && npm start",
     "test:parser": "node -e \"console.log(require('./backend/src/services/meetingParser').parseMeetingInput('82705502661'))\"",
