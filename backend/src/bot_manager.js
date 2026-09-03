@@ -1863,6 +1863,8 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-software-rasterizer',
       '--disable-blink-features=AutomationControlled',
       '--disable-features=AutomationControlled,Translate,BackForwardCache,AcceptCHFrame,MediaRouter,OptimizationHints',
       '--js-flags=--max-old-space-size=256',
@@ -1882,9 +1884,17 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
       `--window-size=${dim.width},${dim.height}`
     ];
 
-    // Find best browser executable on system
+    // Find best browser executable on system (Supports Linux / Docker / Windows / macOS)
     const possiblePaths = [
+      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+      process.env.PUPPETEER_EXECUTABLE_PATH,
       process.env.CHROME_PATH,
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/snap/bin/chromium',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -1909,10 +1919,20 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
       }
     } catch (bErr) {
       console.error(`[Bot ${botId}] Browser launch fallback due to:`, bErr.message);
-      try {
-        browser = await chromium.launch({ channel: 'chrome', headless: true, args: launchArgs });
-      } catch (e2) {
-        browser = await chromium.launch({ channel: 'msedge', headless: true, args: launchArgs }).catch(() => null);
+      for (const fallbackPath of ['/usr/bin/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium-browser']) {
+        if (fs.existsSync(fallbackPath)) {
+          try {
+            browser = await chromium.launch({ executablePath: fallbackPath, headless: true, args: launchArgs });
+            if (browser) break;
+          } catch (_) {}
+        }
+      }
+      if (!browser) {
+        try {
+          browser = await chromium.launch({ channel: 'chrome', headless: true, args: launchArgs });
+        } catch (e2) {
+          browser = await chromium.launch({ channel: 'msedge', headless: true, args: launchArgs }).catch(() => null);
+        }
       }
     }
 
