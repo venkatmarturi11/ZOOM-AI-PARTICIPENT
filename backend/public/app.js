@@ -224,7 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
           // flat 2.5s, since aborting early used to silently trigger the
           // (now removed) local fallback login.
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000);
+          const timeoutId = setTimeout(() => controller.abort(), 60000);
 
           const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
             method: 'POST',

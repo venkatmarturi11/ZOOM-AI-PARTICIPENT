@@ -1218,7 +1218,7 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
 
   let rawVideoSaved = false;
 
-  let rawAudioPath = (bot && bot.rawAudioPath) || path.join(RECORDINGS_DIR, `raw_audio_${botTarget}.webm`);
+  let rawAudioPath = (bot && bot.rawAudioPath) || path.join(RECORDINGS_DIR, `raw_audio_${bot ? bot.id : botId || 'session'}.webm`);
   if (bot) {
     bot.status = 'STOPPED';
     try {
@@ -2264,8 +2264,22 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
             const isPreviewScreen = !!document.querySelector(
               'button.preview-join-button, button#joinBtn, #inputname, input[name="inputname"], input[name="inputpasscode"]'
             );
-            const hasMeetingUI = !isPreviewScreen && !!document.querySelector(
-              '.footer__leave-btn, [aria-label*="leave meeting"], .participants-header, .speaker-bar, .sharer-controlbar, #wc-footer .footer-button, button:has-text("Leave")'
+
+            const hasLeaveBtn = !!Array.from(document.querySelectorAll('button, a')).find(el => {
+              const t = (el.textContent || '').trim().toLowerCase();
+              const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+              return t === 'leave' || t === 'leave meeting' || t === 'end' || aria.includes('leave meeting') || aria.includes('leave');
+            });
+
+            const hasMeetingUI = !isPreviewScreen && (
+              hasLeaveBtn ||
+              !!document.querySelector('.footer__leave-btn, [aria-label*="leave meeting"], .participants-header, .speaker-bar, .sharer-controlbar, #wc-footer, .meeting-client, #meeting-app, #full-screen-video, .video-avatar__avatar-name') ||
+              text.includes('leave meeting') ||
+              text.includes('recording in progress') ||
+              text.includes('mute my audio') ||
+              text.includes('start video') ||
+              text.includes('stop video') ||
+              (text.includes('participants') && !text.includes('enter meeting id'))
             );
 
             // 2. Verification of Waiting Room
