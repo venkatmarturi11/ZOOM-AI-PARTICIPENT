@@ -917,6 +917,11 @@ document.addEventListener('DOMContentLoaded', () => {
       badgeClass = 'status-badge standby';
       telText = '<i class="fa-solid fa-shield-halved text-warning"></i> reCAPTCHA detected — Executing direct Web Client URL bypass...';
       tagText = `Bot: ${state.botDisplayName} [CAPTCHA BYPASS]`;
+    } else if (s === 'PASSCODE_REQUIRED') {
+      badgeText = 'PASSCODE REQUIRED';
+      badgeClass = 'status-badge standby';
+      telText = '<i class="fa-solid fa-key text-warning"></i> Meeting requires a Passcode. Please provide the meeting passcode or enter full invite link.';
+      tagText = `Bot: ${state.botDisplayName} [PASSCODE REQUIRED]`;
     } else if (s === 'ERROR') {
       badgeText = 'JOIN ERROR';
       badgeClass = 'status-badge error';
