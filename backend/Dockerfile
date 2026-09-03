@@ -40,6 +40,7 @@ WORKDIR /app
 # Install Node dependencies
 COPY package*.json ./
 RUN npm ci --omit=dev || npm install --production
+RUN npx playwright install ffmpeg
 
 # Copy application source code
 COPY . .

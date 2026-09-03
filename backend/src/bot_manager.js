@@ -1932,29 +1932,33 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
 
     let systemBrowserPath = possiblePaths.find(p => fs.existsSync(p));
 
-    // Try launching default Playwright Chromium first, then fallback to system paths
-    try {
-      browser = await chromium.launch({
-        headless: true,
-        args: launchArgs
-      });
-    } catch (defaultLaunchErr) {
-      lastLaunchError = defaultLaunchErr.message;
-      console.log(`[Bot ${botId}] Default Playwright launch failed (${defaultLaunchErr.message}), trying system executable...`);
-
-      if (systemBrowserPath) {
-        try {
-          console.log(`[Bot ${botId}] Using system browser at: ${systemBrowserPath}`);
-          browser = await chromium.launch({
-            executablePath: systemBrowserPath,
-            headless: true,
-            args: launchArgs
-          });
-        } catch (sysErr) {
-          lastLaunchError = sysErr.message;
-          console.error(`[Bot ${botId}] System browser launch failed:`, sysErr.message);
-        }
+    // If a system browser exists (e.g. /usr/bin/chromium in Docker), launch it first
+    if (systemBrowserPath) {
+      try {
+        console.log(`[Bot ${botId}] Launching system browser at: ${systemBrowserPath}`);
+        browser = await chromium.launch({
+          executablePath: systemBrowserPath,
+          headless: true,
+          args: launchArgs
+        });
+      } catch (sysErr) {
+        lastLaunchError = sysErr.message;
+        console.warn(`[Bot ${botId}] System browser launch failed (${sysErr.message}), trying default Playwright...`);
       }
+    }
+
+    // Fallback: try default Playwright Chromium
+    if (!browser) {
+      try {
+        browser = await chromium.launch({
+          headless: true,
+          args: launchArgs
+        });
+      } catch (defaultLaunchErr) {
+        lastLaunchError = defaultLaunchErr.message;
+        console.log(`[Bot ${botId}] Default Playwright launch failed (${defaultLaunchErr.message})`);
+      }
+    }
 
       if (!browser) {
         for (const fallbackPath of ['/usr/bin/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium-browser']) {
@@ -2014,6 +2018,31 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
 
     if (hasPersistentSession) {
       console.log(`[Bot ${botId}] Persistent Authenticated Zoom session active! Loading storageState from ${path.basename(userSessionPath)}...`);
+    }
+
+    // Ensure Playwright's ffmpeg cache directory exists and has ffmpeg binary
+    try {
+      const cacheBase = process.env.PLAYWRIGHT_BROWSERS_PATH || (process.platform === 'linux' ? '/root/.cache/ms-playwright' : null);
+      if (cacheBase && fs.existsSync('/usr/bin/ffmpeg')) {
+        const candidateDirs = ['ffmpeg-1011', 'ffmpeg-1009', 'ffmpeg-1010', 'ffmpeg-1008', 'ffmpeg-1007'];
+        for (const dirName of candidateDirs) {
+          const targetDir = path.join(cacheBase, dirName);
+          fs.mkdirSync(targetDir, { recursive: true });
+          const targetBin = path.join(targetDir, 'ffmpeg-linux');
+          if (!fs.existsSync(targetBin)) {
+            try {
+              fs.symlinkSync('/usr/bin/ffmpeg', targetBin);
+            } catch (e) {
+              try {
+                fs.copyFileSync('/usr/bin/ffmpeg', targetBin);
+                fs.chmodSync(targetBin, 0o755);
+              } catch (e2) {}
+            }
+          }
+        }
+      }
+    } catch (ffErr) {
+      console.warn('[Bot Engine] Auto-ffmpeg setup warning:', ffErr.message);
     }
 
     const contextOptions = {
