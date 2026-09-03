@@ -922,6 +922,11 @@ document.addEventListener('DOMContentLoaded', () => {
       badgeClass = 'status-badge standby';
       telText = '<i class="fa-solid fa-key text-warning"></i> Meeting requires a Passcode. Please provide the meeting passcode or enter full invite link.';
       tagText = `Bot: ${state.botDisplayName} [PASSCODE REQUIRED]`;
+    } else if (s === 'INCORRECT_PASSCODE') {
+      badgeText = 'WRONG PASSCODE';
+      badgeClass = 'status-badge error';
+      telText = '<i class="fa-solid fa-triangle-exclamation text-danger"></i> Incorrect Meeting Passcode. Please check the passcode and try again.';
+      tagText = `Bot: ${state.botDisplayName} [WRONG PASSCODE]`;
     } else if (s === 'ERROR') {
       badgeText = 'JOIN ERROR';
       badgeClass = 'status-badge error';

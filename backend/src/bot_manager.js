@@ -2343,6 +2343,12 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
                               text.includes('sign in required')) &&
                               !hasMeetingUI;
 
+            // 5.5 Verification of Incorrect Passcode
+            const hasIncorrectPasscode = text.includes('incorrect password') ||
+                                         text.includes('wrong passcode') ||
+                                         text.includes('incorrect passcode') ||
+                                         text.includes('invalid passcode');
+
             // 6. Verification of Error / Meeting Unavailable
             const isBotBlocked = text.includes("automated bots aren't allowed") ||
                                  text.includes("bots aren't allowed") ||
@@ -2353,8 +2359,8 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
                              text.includes('this meeting could not be found') ||
                              isBotBlocked;
 
-            return { hasMeetingUI, inWaitingRoom, hasCaptchaText, needsRegistration, needsPasscode, needsAuth, hasError, isBotBlocked };
-          }).catch(() => ({ hasMeetingUI: false, inWaitingRoom: false, hasCaptchaText: false, needsRegistration: false, needsPasscode: false, needsAuth: false, hasError: false, isBotBlocked: false }));
+            return { hasMeetingUI, inWaitingRoom, hasCaptchaText, needsRegistration, needsPasscode, hasIncorrectPasscode, needsAuth, hasError, isBotBlocked };
+          }).catch(() => ({ hasMeetingUI: false, inWaitingRoom: false, hasCaptchaText: false, needsRegistration: false, needsPasscode: false, hasIncorrectPasscode: false, needsAuth: false, hasError: false, isBotBlocked: false }));
 
           // Frame-based reCAPTCHA detection (correct cross-origin approach, same as handleRecaptchaAndRegister)
           let hasRecaptchaFrame = false;
@@ -2428,6 +2434,9 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
             botRef.authAttempts = 0;
             if (hasCaptcha) {
               nextStatus = 'CAPTCHA_REQUIRED';
+            } else if (pageState.hasIncorrectPasscode) {
+              nextStatus = 'INCORRECT_PASSCODE';
+              botRef.statusMessage = 'Incorrect meeting passcode. Please verify the meeting passcode and try again.';
             } else if (pageState.needsRegistration) {
               nextStatus = 'REGISTRATION_REQUIRED';
             } else if (pageState.needsPasscode && !pwd) {
@@ -2447,7 +2456,7 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
           // Fix #4: Stale Page / Frozen Tab Recovery — if stuck for 60s while not in meeting/waiting room, force reload
           if (!botRef._lastStateChangeTime) botRef._lastStateChangeTime = Date.now();
           const stuckMs = Date.now() - botRef._lastStateChangeTime;
-          if (stuckMs > 60000 && nextStatus !== 'IN_MEETING' && nextStatus !== 'IN_WAITING_ROOM' && nextStatus !== 'PASSCODE_REQUIRED' && nextStatus !== 'ERROR') {
+          if (stuckMs > 60000 && nextStatus !== 'IN_MEETING' && nextStatus !== 'IN_WAITING_ROOM' && nextStatus !== 'PASSCODE_REQUIRED' && nextStatus !== 'INCORRECT_PASSCODE' && nextStatus !== 'ERROR') {
             console.warn(`[Bot ${botId}] State machine stuck in ${nextStatus} for ${(stuckMs / 1000).toFixed(0)}s — forcing page reload.`);
             botRef._lastStateChangeTime = Date.now();
             await page.goto(directWcUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
