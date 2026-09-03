@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -54,6 +55,9 @@ class ScreenRecordService : Service() {
         const val ACTION_STOP = "com.zoomrecord.app.STOP_RECORD"
         const val EXTRA_RESULT_CODE = "resultCode"
         const val EXTRA_RESULT_DATA = "resultData"
+        const val ACTION_PAUSE = "com.zoomrecord.app.PAUSE_RECORD"
+        const val ACTION_RESUME = "com.zoomrecord.app.RESUME_RECORD"
+        const val EXTRA_IS_PAUSED = "isPaused"
 
         private const val NOTIFICATION_ID = 42
         private const val CHANNEL_ID = "screen_recording"
@@ -65,10 +69,25 @@ class ScreenRecordService : Service() {
         const val EXTRA_START_TIME_MS = "startTimeMs"
         const val EXTRA_OUTPUT_PATH = "outputPath"
         const val EXTRA_ERROR_MESSAGE = "errorMessage"
+        const val EXTRA_SHOW_FLOATING_OVERLAY = "extra_show_floating_overlay"
+        const val EXTRA_AUDIO_BOOST = "extra_audio_boost"
+        const val EXTRA_SPEAKER_OUTPUT_ENABLED = "extra_speaker_output_enabled"
+        const val EXTRA_SPEAKER_STATE = "speakerState"
+        const val ACTION_TOGGLE_SPEAKER = "com.zoomrecord.app.action.TOGGLE_SPEAKER"
+        const val ACTION_SET_SPEAKER = "com.zoomrecord.app.action.SET_SPEAKER"
+        const val BROADCAST_SPEAKER_STATE = "com.zoomrecord.app.SPEAKER_STATE"
 
         /** Globally observable status for in-app UI checks */
         @Volatile
         var isRunning: Boolean = false
+            private set
+
+        @Volatile
+        var isPaused: Boolean = false
+            private set
+
+        @Volatile
+        var isSpeakerOutputActive: Boolean = false
             private set
 
         @Volatile
@@ -106,7 +125,10 @@ class ScreenRecordService : Service() {
     private var storageWatchdogJob: Job? = null
     private var tickerJob: Job? = null
     private var recordingStartTime = 0L
+    private var totalPausedDurationMs = 0L
+    private var pauseStartTimeMs = 0L
     private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var floatingOverlay: FloatingRecordingOverlay? = null
 
     // ── Screen state receiver ────────────────────────────────────────
 
@@ -147,6 +169,13 @@ class ScreenRecordService : Service() {
         when (intent?.action) {
             ACTION_START -> startRecording(intent)
             ACTION_STOP -> stopRecording()
+            ACTION_PAUSE -> pauseRecording()
+            ACTION_RESUME -> resumeRecording()
+            ACTION_TOGGLE_SPEAKER -> toggleSpeakerOutput()
+            ACTION_SET_SPEAKER -> {
+                val enabled = intent.getBooleanExtra(EXTRA_SPEAKER_STATE, false)
+                setSpeakerOutput(enabled)
+            }
         }
         return START_NOT_STICKY
     }
@@ -245,6 +274,24 @@ class ScreenRecordService : Service() {
         // Shared start time for perfect audio/video sync
         val startNanoTime = System.nanoTime()
 
+        val showOverlay = intent.getBooleanExtra(EXTRA_SHOW_FLOATING_OVERLAY, true)
+        val audioBoost = intent.getBooleanExtra(EXTRA_AUDIO_BOOST, true)
+
+        // Start audio encoder with dual capture:
+        // 1. AudioPlaybackCapture captures internal media/games
+        // 2. Hardware Microphone (CAMCORDER, AEC OFF) captures Zoom/VoIP call audio
+        // Android blocks AudioPlaybackCapture for USAGE_VOICE_COMMUNICATION (Zoom/Meet calls),
+        // so mixing mic + playback is the only way to record Zoom meeting audio reliably on Android.
+        audioEncoder = AudioEncoder(
+            config = config,
+            mediaProjection = mediaProjection,
+            captureMode = AudioEncoder.AudioCaptureMode.MIC_PLUS_PLAYBACK,
+            audioBoostEnabled = true,
+            onAudioTrack = { format -> muxer!!.addAudioTrack(format) },
+            onEncodedFrame = { track, buf, info -> muxer!!.writeSample(track, buf, info) },
+            onAudioError = { muxer?.notifyTrackUnavailable("audio") },
+        ).also { it.start(startNanoTime) }
+
         // Start video encoder
         screenEncoder = ScreenEncoder(
             projection = mediaProjection!!,
@@ -252,16 +299,6 @@ class ScreenRecordService : Service() {
             onVideoTrack = { format -> muxer!!.addVideoTrack(format) },
             onEncodedFrame = { track, buf, info -> muxer!!.writeSample(track, buf, info) },
         ).also { it.start() }
-
-        // Start audio encoder (synchronized with video via shared startNanoTime)
-        audioEncoder = AudioEncoder(
-            config = config,
-            mediaProjection = mediaProjection,
-            captureMode = AudioEncoder.AudioCaptureMode.MIC_PLUS_PLAYBACK,
-            onAudioTrack = { format -> muxer!!.addAudioTrack(format) },
-            onEncodedFrame = { track, buf, info -> muxer!!.writeSample(track, buf, info) },
-            onAudioError = { muxer?.notifyTrackUnavailable("audio") },
-        ).also { it.start(startNanoTime) }
 
         // Start storage watchdog
         startStorageWatchdog(config)
@@ -280,20 +317,82 @@ class ScreenRecordService : Service() {
         activeStartTimeMs = recordingStartTime
         isRunning = true
 
+        // Initialize speaker state: Default true (loudspeaker ON) so mic captures Zoom meeting audio
+        val speakerEnabled = intent.getBooleanExtra(EXTRA_SPEAKER_OUTPUT_ENABLED, true)
+        setSpeakerOutput(speakerEnabled)
+        com.zoomrecord.app.zoom.ZoomBotAccessibilityService.ensureWatchdogRunning()
+
+        // Show floating overlay controller over Zoom if enabled and permission granted
+        if (showOverlay) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    floatingOverlay = FloatingRecordingOverlay(applicationContext) {
+                        stopRecording()
+                    }.apply {
+                        show()
+                        updateSpeakerState(isSpeakerOutputActive)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Notice: could not show floating overlay", e)
+                }
+            }
+        }
+
         // Broadcast initial recording started
         broadcastState(isRecording = true, elapsedSeconds = 0, startTimeMs = recordingStartTime)
 
-        // Periodic ticker broadcasting elapsed seconds to in-meeting UI
+        // Periodic ticker broadcasting elapsed seconds to in-meeting UI and floating overlay
         tickerJob?.cancel()
         tickerJob = serviceScope.launch {
             while (isActive && isRunning) {
                 delay(1000)
-                val elapsed = ((System.currentTimeMillis() - recordingStartTime) / 1000).toInt()
-                broadcastState(isRecording = true, elapsedSeconds = elapsed, startTimeMs = recordingStartTime)
+                val now = if (isPaused && pauseStartTimeMs > 0L) pauseStartTimeMs else System.currentTimeMillis()
+                val elapsed = maxOf(0, ((now - recordingStartTime - totalPausedDurationMs) / 1000).toInt())
+                broadcastState(isRecording = true, isPausedState = isPaused, elapsedSeconds = elapsed, startTimeMs = recordingStartTime)
+                floatingOverlay?.updateElapsedSeconds(elapsed, isPaused)
             }
         }
 
         Log.i(TAG, "Recording started: ${config.width}x${config.height} → $outputPath")
+    }
+
+    // ── Recording pause & resume ─────────────────────────────────────
+
+    private fun pauseRecording() {
+        if (!isRunning || isPaused) return
+        Log.i(TAG, "Pausing screen recording…")
+        isPaused = true
+        pauseStartTimeMs = System.currentTimeMillis()
+
+        try { screenEncoder?.pause() } catch (_: Exception) {}
+        try { audioEncoder?.pause() } catch (_: Exception) {}
+        try { muxer?.pause() } catch (_: Exception) {}
+
+        updateNotification("Recording paused")
+        floatingOverlay?.updatePausedState(true)
+
+        val elapsed = maxOf(0, ((pauseStartTimeMs - recordingStartTime - totalPausedDurationMs) / 1000).toInt())
+        broadcastState(isRecording = true, isPausedState = true, elapsedSeconds = elapsed, startTimeMs = recordingStartTime)
+    }
+
+    private fun resumeRecording() {
+        if (!isRunning || !isPaused) return
+        Log.i(TAG, "Resuming screen recording…")
+        if (pauseStartTimeMs > 0L) {
+            totalPausedDurationMs += (System.currentTimeMillis() - pauseStartTimeMs)
+            pauseStartTimeMs = 0L
+        }
+        isPaused = false
+
+        try { screenEncoder?.resume() } catch (_: Exception) {}
+        try { audioEncoder?.resume() } catch (_: Exception) {}
+        try { muxer?.resume() } catch (_: Exception) {}
+
+        updateNotification(getString(R.string.recording_in_progress))
+        floatingOverlay?.updatePausedState(false)
+
+        val elapsed = maxOf(0, ((System.currentTimeMillis() - recordingStartTime - totalPausedDurationMs) / 1000).toInt())
+        broadcastState(isRecording = true, isPausedState = false, elapsedSeconds = elapsed, startTimeMs = recordingStartTime)
     }
 
     // ── Recording stop ───────────────────────────────────────────────
@@ -301,9 +400,23 @@ class ScreenRecordService : Service() {
     private fun stopRecording() {
         Log.i(TAG, "Stopping recording…")
         isRunning = false
+        isPaused = false
         activeStartTimeMs = 0L
+        pauseStartTimeMs = 0L
+        totalPausedDurationMs = 0L
         tickerJob?.cancel()
         storageWatchdogJob?.cancel()
+
+        // Restore volume if it was muted during recording
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            if (am != null && !isSpeakerOutputActive && savedVolumes.isNotEmpty()) {
+                for (stream in controlledStreams) {
+                    val target = savedVolumes[stream] ?: continue
+                    am.setStreamVolume(stream, target, 0)
+                }
+            }
+        } catch (_: Exception) {}
 
         try {
             if (wakeLock?.isHeld == true) {
@@ -335,7 +448,47 @@ class ScreenRecordService : Service() {
                 } else {
                     RecordingsRepository.finalizePendingRecording(this, android.net.Uri.fromFile(file), "video/mp4")
                 }
+                // Automatically generate synchronized companion MP3 file matching meeting timings
+                val path = outputPath!!
+                Thread({
+                    try {
+                        AudioExtractor.extractAudioFromMp4(applicationContext, path)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Companion MP3 generation notice", e)
+                    }
+                }, "screen-mp3-extractor").start()
             }
+        }
+
+        // Restore normal audio routing on stop
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            am?.mode = AudioManager.MODE_NORMAL
+            am?.isSpeakerphoneOn = false
+            val maxVol = am?.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL) ?: 0
+            if (maxVol > 0) {
+                am?.setStreamVolume(AudioManager.STREAM_VOICE_CALL, (maxVol * 0.7).toInt(), 0)
+            }
+        } catch (_: Exception) {}
+
+        // Dismiss floating overlay
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try {
+                floatingOverlay?.dismiss()
+                floatingOverlay = null
+            } catch (_: Exception) {}
+        }
+
+        // Request Zoom bot to automatically exit/leave the meeting
+        try {
+            com.zoomrecord.app.zoom.ZoomBotAccessibilityService.requestExitMeeting()
+            val exitIntent = Intent(com.zoomrecord.app.zoom.ZoomBotAccessibilityService.ACTION_EXIT_ZOOM_MEETING).apply {
+                setPackage(packageName)
+            }
+            sendBroadcast(exitIntent)
+            Log.i(TAG, "Recording stopped: sent exit meeting request to Zoom bot")
+        } catch (e: Exception) {
+            Log.w(TAG, "Notice: could not request exit meeting", e)
         }
 
         // Notify UI that recording has ended
@@ -344,6 +497,67 @@ class ScreenRecordService : Service() {
         stopSelf()
 
         Log.i(TAG, "Recording stopped and finalized")
+    }
+
+    // ── Speaker Sound Output Control ──────────────────────────────────
+
+    private fun toggleSpeakerOutput() {
+        setSpeakerOutput(!isSpeakerOutputActive)
+    }
+
+    private fun setSpeakerOutput(enabled: Boolean) {
+        isSpeakerOutputActive = enabled
+        applySpeakerSetting(enabled)
+        floatingOverlay?.updateSpeakerState(enabled)
+        broadcastSpeakerState(enabled)
+    }
+
+    private val controlledStreams = intArrayOf(
+        AudioManager.STREAM_VOICE_CALL,
+        AudioManager.STREAM_MUSIC,
+        AudioManager.STREAM_RING,
+        AudioManager.STREAM_NOTIFICATION,
+        AudioManager.STREAM_SYSTEM
+    )
+    private val savedVolumes = mutableMapOf<Int, Int>()
+
+    private fun applySpeakerSetting(enabled: Boolean) {
+        isSpeakerOutputActive = enabled
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+
+            if (enabled) {
+                // UNMUTE: Restore device volume so speaker audio plays and is recorded
+                for (stream in controlledStreams) {
+                    val max = am.getStreamMaxVolume(stream)
+                    val targetVol = savedVolumes[stream]?.takeIf { it > 0 } ?: (max * 0.70).toInt().coerceAtLeast(1)
+                    try {
+                        am.setStreamVolume(stream, targetVol, 0)
+                    } catch (_: Exception) {}
+                }
+                Log.i(TAG, "Device Volume UNMUTED: Speaker sound restored for recording")
+            } else {
+                // MUTE: Save current volume and silence device volume
+                for (stream in controlledStreams) {
+                    val cur = am.getStreamVolume(stream)
+                    if (cur > 0) savedVolumes[stream] = cur
+                    try {
+                        am.setStreamVolume(stream, 0, 0)
+                    } catch (_: Exception) {}
+                }
+                Log.i(TAG, "Device Volume MUTED: Speaker silenced")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply volume mute/unmute setting: ${e.message}")
+        }
+    }
+
+    private fun broadcastSpeakerState(enabled: Boolean) {
+        val intent = Intent(BROADCAST_SPEAKER_STATE).apply {
+            putExtra(EXTRA_SPEAKER_STATE, enabled)
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
     }
 
     // ── Screen lock handling ─────────────────────────────────────────
@@ -453,14 +667,31 @@ class ScreenRecordService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        // Pause / Resume action
+        val toggleActionIntent = Intent(this, ScreenRecordService::class.java).apply {
+            action = if (isPaused) ACTION_RESUME else ACTION_PAUSE
+        }
+        val togglePendingIntent = PendingIntent.getService(
+            this, 1, toggleActionIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val toggleIcon = if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
+        val toggleTitle = if (isPaused) "Resume" else "Pause"
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.recording_notification_title))
             .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.ic_media_play) // TODO: custom icon
+            .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .setSilent(true)
             .addAction(
-                android.R.drawable.ic_media_pause,
+                toggleIcon,
+                toggleTitle,
+                togglePendingIntent,
+            )
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
                 getString(R.string.recording_notification_stop),
                 stopPendingIntent,
             )
@@ -476,12 +707,14 @@ class ScreenRecordService : Service() {
 
     private fun broadcastState(
         isRecording: Boolean,
+        isPausedState: Boolean = isPaused,
         elapsedSeconds: Int = 0,
         startTimeMs: Long = 0L,
     ) {
         sendBroadcast(Intent(BROADCAST_RECORDING_STATE).apply {
             setPackage(packageName)
             putExtra(EXTRA_IS_RECORDING, isRecording)
+            putExtra(EXTRA_IS_PAUSED, isPausedState)
             putExtra(EXTRA_ELAPSED_SECONDS, elapsedSeconds)
             putExtra(EXTRA_START_TIME_MS, startTimeMs)
             outputPath?.let { putExtra(EXTRA_OUTPUT_PATH, it) }
