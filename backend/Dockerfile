@@ -49,5 +49,5 @@ RUN mkdir -p /app/recordings /app/data /app/storage
 
 EXPOSE 3000
 
-# Start unified bot manager and web studio with virtual framebuffer
-CMD ["xvfb-run", "-a", "--server-args=-screen 0 1920x1080x24", "node", "src/index.js"]
+# Start unified bot manager and web studio
+CMD ["node", "src/index.js"]
