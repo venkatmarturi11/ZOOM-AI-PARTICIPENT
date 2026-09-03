@@ -2738,7 +2738,11 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
   } catch (err) {
     console.error(`[Bot ${botId}] Error launching bot container:`, err);
     const bot = activeBots.get(botId);
-    if (bot) bot.status = 'ERROR';
+    if (bot) {
+      bot.status = 'ERROR';
+      bot.statusMessage = err.message || 'Error launching bot';
+      bot.error = err.message || 'Error launching bot';
+    }
   }
 }
 
@@ -2983,6 +2987,54 @@ app.post('/api/bot/record', async (req, res) => {
     localhostUrl: netInfo.localhostUrl,
     message: `Autonomous Bot "${botName}" deployed to Meeting ${meetingId}`
   });
+});
+
+// GET /api/bot/test-browser — Diagnostics for testing browser launch in container
+app.get('/api/bot/test-browser', async (req, res) => {
+  const diag = { exists: {}, launch: {} };
+  const paths = [
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome'
+  ].filter(Boolean);
+
+  for (const p of paths) {
+    diag.exists[p] = fs.existsSync(p);
+  }
+
+  const testArgs = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-software-rasterizer',
+    '--no-first-run'
+  ];
+
+  // Try default
+  try {
+    const b = await chromium.launch({ headless: true, args: testArgs });
+    diag.launch['default'] = { success: true, version: b.version() };
+    await b.close();
+  } catch (e) {
+    diag.launch['default'] = { success: false, error: e.message };
+  }
+
+  // Try each existing path
+  for (const p of paths) {
+    if (diag.exists[p]) {
+      try {
+        const b = await chromium.launch({ executablePath: p, headless: true, args: testArgs });
+        diag.launch[p] = { success: true, version: b.version() };
+        await b.close();
+      } catch (e) {
+        diag.launch[p] = { success: false, error: e.message };
+      }
+    }
+  }
+
+  res.json(diag);
 });
 
 // GET /api/bot/active — Returns active status for Android client HUD
