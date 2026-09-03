@@ -1879,6 +1879,7 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
     console.log(`[Bot Container] Launching Autonomous Chromium Browser for "${displayName}" [Resolution: ${dim.width}x${dim.height}]...`);
     
     let browser;
+    let lastLaunchError = null;
     const launchArgs = [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -1887,7 +1888,6 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
       '--disable-software-rasterizer',
       '--disable-blink-features=AutomationControlled',
       '--disable-features=AutomationControlled,Translate,BackForwardCache,AcceptCHFrame,MediaRouter,OptimizationHints',
-      '--js-flags=--max-old-space-size=256',
       '--disable-background-networking',
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
@@ -1923,43 +1923,64 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
 
     let systemBrowserPath = possiblePaths.find(p => fs.existsSync(p));
 
+    // Try launching default Playwright Chromium first, then fallback to system paths
     try {
+      browser = await chromium.launch({
+        headless: true,
+        args: launchArgs
+      });
+    } catch (defaultLaunchErr) {
+      lastLaunchError = defaultLaunchErr.message;
+      console.log(`[Bot ${botId}] Default Playwright launch failed (${defaultLaunchErr.message}), trying system executable...`);
+
       if (systemBrowserPath) {
-        console.log(`[Bot ${botId}] Using system browser at: ${systemBrowserPath}`);
-        browser = await chromium.launch({
-          executablePath: systemBrowserPath,
-          headless: true,
-          args: launchArgs
-        });
-      } else {
-        browser = await chromium.launch({
-          headless: true,
-          args: launchArgs
-        });
-      }
-    } catch (bErr) {
-      console.error(`[Bot ${botId}] Browser launch fallback due to:`, bErr.message);
-      for (const fallbackPath of ['/usr/bin/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium-browser']) {
-        if (fs.existsSync(fallbackPath)) {
-          try {
-            browser = await chromium.launch({ executablePath: fallbackPath, headless: true, args: launchArgs });
-            if (browser) break;
-          } catch (_) {}
+        try {
+          console.log(`[Bot ${botId}] Using system browser at: ${systemBrowserPath}`);
+          browser = await chromium.launch({
+            executablePath: systemBrowserPath,
+            headless: true,
+            args: launchArgs
+          });
+        } catch (sysErr) {
+          lastLaunchError = sysErr.message;
+          console.error(`[Bot ${botId}] System browser launch failed:`, sysErr.message);
         }
       }
+
+      if (!browser) {
+        for (const fallbackPath of ['/usr/bin/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium-browser']) {
+          if (fs.existsSync(fallbackPath)) {
+            try {
+              browser = await chromium.launch({ executablePath: fallbackPath, headless: true, args: launchArgs });
+              if (browser) break;
+            } catch (fbErr) {
+              lastLaunchError = fbErr.message;
+            }
+          }
+        }
+      }
+
       if (!browser) {
         try {
           browser = await chromium.launch({ channel: 'chrome', headless: true, args: launchArgs });
         } catch (e2) {
-          browser = await chromium.launch({ channel: 'msedge', headless: true, args: launchArgs }).catch(() => null);
+          try {
+            browser = await chromium.launch({ channel: 'msedge', headless: true, args: launchArgs });
+          } catch (e3) {
+            lastLaunchError = e3.message;
+          }
         }
       }
     }
 
     if (!browser) {
-      console.error(`[Bot ${botId}] Browser instance unavailable on server host.`);
+      console.error(`[Bot ${botId}] Browser instance unavailable on server host. Last error: ${lastLaunchError}`);
       const bot = activeBots.get(botId);
-      if (bot) bot.status = 'ERROR';
+      if (bot) {
+        bot.status = 'ERROR';
+        bot.statusMessage = `Browser unavailable: ${lastLaunchError || 'Could not launch Chromium'}`;
+        bot.error = lastLaunchError;
+      }
       return;
     }
 
@@ -2941,6 +2962,8 @@ app.get('/api/bot/active', (req, res) => {
     meetingId: activeBot.id,
     zoomMeetingId: activeBot.meetingId,
     status: activeBot.status || 'RECORDING',
+    statusMessage: activeBot.statusMessage || null,
+    error: activeBot.error || null,
     displayName: activeBot.botName,
     frameCount: activeBot.lastScreenshotBuf ? 100 : 0,
     liveScreenUrl: `/api/live/screen`
