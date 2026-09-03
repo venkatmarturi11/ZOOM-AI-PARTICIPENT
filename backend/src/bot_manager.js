@@ -2842,7 +2842,7 @@ app.get('/api/health', (req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     service: 'Zoom Bot Meeting Recorder Backend & Studio',
-    version: '3.0.0',
+    version: '3.1.0-docker-playwright',
     activeBotsCount: activeBots.size,
     recordingsCount: recordingsMeta.length,
     storage: {
