@@ -13,7 +13,7 @@ services:
       - PORT=3000
       - NODE_ENV=production
       - DISPLAY=:99
-      - USE_NATIVE_ZOOM=true
+      - CLOUD_MODE=true
       - PULSE_SINK=speaker.monitor
       - JWT_SECRET=zoom_secret_key_change_me
     volumes:
@@ -23,3 +23,4 @@ services:
       - ./backend/storage:/app/storage
       - ./backend/sessions:/app/sessions
     shm_size: '2gb'
+

@@ -150,6 +150,13 @@ const activeBots = new Map();
 
 // --- Telegram Bot Service initialized via services/telegramService.js ---
 
+// Cloud mode detection — when running on Render/Railway/cloud, disable native
+// Zoom desktop (not available) and enable ephemeral storage cleanup.
+const CLOUD_MODE = process.env.CLOUD_MODE === 'true' || process.env.RENDER === 'true' || !!process.env.RENDER_EXTERNAL_URL;
+if (CLOUD_MODE) {
+  console.log('[Cloud] ☁️  Running in CLOUD MODE — native Zoom disabled, web engine active, ephemeral storage cleanup enabled.');
+}
+
 // All persistent state (recordings, sessions, user accounts) lives under
 // this base directory. On Render's default ephemeral disk this is just
 // server/ and gets wiped on every redeploy/restart. Set PERSIST_DIR to a
@@ -1944,7 +1951,8 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
     const dim = getDimensions(qualityStr, connectionType);
 
     // Check if Native Zoom client is available (zoomrec architecture)
-    const hasNativeZoom = fs.existsSync('/usr/bin/zoom') || process.env.USE_NATIVE_ZOOM === 'true';
+    // In cloud mode, always use web engine (Playwright) since native Zoom desktop is not available
+    const hasNativeZoom = !CLOUD_MODE && (fs.existsSync('/usr/bin/zoom') || process.env.USE_NATIVE_ZOOM === 'true');
     if (hasNativeZoom) {
       console.log(`[Bot Container] Native Zoom desktop client detected! Spawning native_zoom_runner.py (zoomrec engine)...`);
       const currentBot = activeBots.get(botId);
@@ -3049,18 +3057,25 @@ app.get('/api/zoom/status', authenticate, (req, res) => {
   res.json({ configured: !!(zoomCloudService && zoomCloudService.isConfigured()) });
 });
 
-// GET /api/health — System health check for dashboard and electron clients
+// GET /api/health — System health check for Render, dashboard, and mobile clients
 app.get('/api/health', (req, res) => {
+  const uptimeSeconds = Math.floor(process.uptime());
+  const uptimeHours = Math.floor(uptimeSeconds / 3600);
+  const uptimeMinutes = Math.floor((uptimeSeconds % 3600) / 60);
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     service: 'Zoom Bot Meeting Recorder Backend & Studio',
-    version: '3.1.0-docker-playwright',
+    version: '3.2.0-cloud',
+    cloudMode: CLOUD_MODE,
+    engine: CLOUD_MODE ? 'web (Playwright)' : 'auto (native/web)',
+    uptime: `${uptimeHours}h ${uptimeMinutes}m`,
     activeBotsCount: activeBots.size,
     recordingsCount: recordingsMeta.length,
     storage: {
       path: RECORDINGS_DIR,
-      exists: fs.existsSync(RECORDINGS_DIR)
+      exists: fs.existsSync(RECORDINGS_DIR),
+      type: CLOUD_MODE ? 'ephemeral (Telegram/Drive backup)' : 'local'
     }
   });
 });
@@ -3553,9 +3568,46 @@ function cleanupOrphanedCaptures() {
     console.error('[Cleanup] Error scanning for orphaned captures:', e.message);
   }
 }
+
+// Cloud mode: also clean up finalized recordings older than 24h to prevent
+// ephemeral disk from filling up (recordings are already backed up to Telegram/Drive)
+function cleanupOldCloudRecordings() {
+  if (!CLOUD_MODE) return;
+  try {
+    const videoExts = ['.mp4', '.mkv', '.webm'];
+    const files = fs.readdirSync(RECORDINGS_DIR).filter(f => videoExts.some(ext => f.endsWith(ext)));
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    let removed = 0;
+    for (const f of files) {
+      const fp = path.join(RECORDINGS_DIR, f);
+      try {
+        const st = fs.statSync(fp);
+        if (now - st.mtimeMs > TWENTY_FOUR_HOURS) {
+          fs.unlinkSync(fp);
+          removed++;
+          console.log(`[Cloud Cleanup] Removed old recording: ${f}`);
+        }
+      } catch (e) {}
+    }
+    if (removed > 0) {
+      console.log(`[Cloud Cleanup] Removed ${removed} recording(s) older than 24 hours from ephemeral storage.`);
+    }
+  } catch (e) {
+    console.error('[Cloud Cleanup] Error:', e.message);
+  }
+}
+
 const cleanupInterval = setInterval(cleanupOrphanedCaptures, 15 * 60 * 1000); // every 15 minutes
 if (cleanupInterval && cleanupInterval.unref) cleanupInterval.unref();
 cleanupOrphanedCaptures(); // also run once on startup
+
+// Run cloud recording cleanup every hour
+if (CLOUD_MODE) {
+  const cloudCleanupInterval = setInterval(cleanupOldCloudRecordings, 60 * 60 * 1000);
+  if (cloudCleanupInterval && cloudCleanupInterval.unref) cloudCleanupInterval.unref();
+  cleanupOldCloudRecordings();
+}
 
 const PORT = process.env.PORT || 3000;
 if (require.main === module || (require.main && require.main.filename && (require.main.filename.endsWith('index.js') || require.main.filename.endsWith('bot_manager.js')))) {

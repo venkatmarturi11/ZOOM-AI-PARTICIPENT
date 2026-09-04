@@ -3,6 +3,12 @@ npm-debug.log
 .git
 .gitignore
 recordings/*.mp4
+recordings/*.mkv
+recordings/*.webm
 recordings/*.m4a
 storage/*
+sessions/*
+data/*
 .env
+*.md
+render.yaml
