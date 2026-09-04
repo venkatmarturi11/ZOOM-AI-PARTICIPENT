@@ -5,13 +5,9 @@
 # -keep class us.zoom.** { *; }
 # -dontwarn us.zoom.**
 
-# ── Retrofit ──────────────────────────────────────────────────────────
+# ── Retrofit / Network ────────────────────────────────────────────────
 -keepattributes Signature
 -keepattributes *Annotation*
--keep class com.zoomrecord.app.backend.** { *; }
--keepclassmembers,allowshrinking,allowobfuscation interface * {
-    @retrofit2.http.* <methods>;
-}
 -dontwarn retrofit2.**
 -dontwarn okhttp3.**
 -dontwarn okio.**

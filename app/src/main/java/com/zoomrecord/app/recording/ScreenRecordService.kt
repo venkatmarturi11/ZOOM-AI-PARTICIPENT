@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -313,6 +314,7 @@ class ScreenRecordService : Service() {
         } catch (_: Exception) {}
 
         // Mark running and set start timestamp
+        activeInstance = this
         recordingStartTime = System.currentTimeMillis()
         activeStartTimeMs = recordingStartTime
         isRunning = true
@@ -341,11 +343,17 @@ class ScreenRecordService : Service() {
         // Broadcast initial recording started
         broadcastState(isRecording = true, elapsedSeconds = 0, startTimeMs = recordingStartTime)
 
-        // Periodic ticker broadcasting elapsed seconds to in-meeting UI and floating overlay
+        // Periodic ticker broadcasting elapsed seconds & keeping loudspeaker forced
         tickerJob?.cancel()
         tickerJob = serviceScope.launch {
+            var tickCount = 0
             while (isActive && isRunning) {
                 delay(1000)
+                tickCount++
+                // Every 3 seconds, ensure Zoom hasn't reverted audio to quiet earpiece
+                if (tickCount % 3 == 0 && isSpeakerOutputActive) {
+                    ensureSpeakerphoneActive()
+                }
                 val now = if (isPaused && pauseStartTimeMs > 0L) pauseStartTimeMs else System.currentTimeMillis()
                 val elapsed = maxOf(0, ((now - recordingStartTime - totalPausedDurationMs) / 1000).toInt())
                 broadcastState(isRecording = true, isPausedState = isPaused, elapsedSeconds = elapsed, startTimeMs = recordingStartTime)
@@ -399,6 +407,7 @@ class ScreenRecordService : Service() {
 
     private fun stopRecording() {
         Log.i(TAG, "Stopping recording…")
+        activeInstance = null
         isRunning = false
         isPaused = false
         activeStartTimeMs = 0L
@@ -463,7 +472,11 @@ class ScreenRecordService : Service() {
         // Restore normal audio routing on stop
         try {
             val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                am?.clearCommunicationDevice()
+            }
             am?.mode = AudioManager.MODE_NORMAL
+            @Suppress("DEPRECATION")
             am?.isSpeakerphoneOn = false
             val maxVol = am?.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL) ?: 0
             if (maxVol > 0) {
@@ -527,17 +540,43 @@ class ScreenRecordService : Service() {
             val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
 
             if (enabled) {
-                // UNMUTE: Restore device volume so speaker audio plays and is recorded
+                // UNMUTE & FORCE LOUDSPEAKER ROUTING
+                try {
+                    // Note: Do NOT set MODE_IN_COMMUNICATION - that triggers phone DSP hardware AEC
+                    // which actively subtracts loudspeaker audio from the microphone recording!
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val speaker = am.availableCommunicationDevices.firstOrNull {
+                            it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                        }
+                        if (speaker != null) {
+                            am.setCommunicationDevice(speaker)
+                        }
+                    }
+                    @Suppress("DEPRECATION")
+                    am.isSpeakerphoneOn = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Notice: could not force speakerphone routing", e)
+                }
+
                 for (stream in controlledStreams) {
                     val max = am.getStreamMaxVolume(stream)
-                    val targetVol = savedVolumes[stream]?.takeIf { it > 0 } ?: (max * 0.70).toInt().coerceAtLeast(1)
+                    val targetVol = savedVolumes[stream]?.takeIf { it > 0 } ?: (max * 0.85).toInt().coerceAtLeast(1)
                     try {
                         am.setStreamVolume(stream, targetVol, 0)
                     } catch (_: Exception) {}
                 }
-                Log.i(TAG, "Device Volume UNMUTED: Speaker sound restored for recording")
+                Log.i(TAG, "Device Volume UNMUTED: Speaker sound routed to loudspeaker for recording")
             } else {
-                // MUTE: Save current volume and silence device volume
+                // MUTE & RESTORE NORMAL ROUTING
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        am.clearCommunicationDevice()
+                    }
+                    @Suppress("DEPRECATION")
+                    am.isSpeakerphoneOn = false
+                    am.mode = AudioManager.MODE_NORMAL
+                } catch (_: Exception) {}
+
                 for (stream in controlledStreams) {
                     val cur = am.getStreamVolume(stream)
                     if (cur > 0) savedVolumes[stream] = cur
@@ -550,6 +589,32 @@ class ScreenRecordService : Service() {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to apply volume mute/unmute setting: ${e.message}")
         }
+    }
+
+    /**
+     * Active watchdog: re-asserts loudspeaker routing if Zoom or another app has
+     * quietly redirected communication audio back to the earpiece.
+     */
+    private fun ensureSpeakerphoneActive() {
+        if (!isSpeakerOutputActive) return
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val currentDevice = am.communicationDevice
+                if (currentDevice == null || currentDevice.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+                    val speaker = am.availableCommunicationDevices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                    }
+                    if (speaker != null) {
+                        am.setCommunicationDevice(speaker)
+                    }
+                }
+            }
+            @Suppress("DEPRECATION")
+            if (!am.isSpeakerphoneOn) {
+                am.isSpeakerphoneOn = true
+            }
+        } catch (_: Exception) {}
     }
 
     private fun broadcastSpeakerState(enabled: Boolean) {

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircle
@@ -173,73 +174,6 @@ fun RecordingsListScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Sync from Website button
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFE8F5E9))
-                            .clickable {
-                                scope.launch {
-                                    Toast.makeText(context, "Checking Website recorder for videos...", Toast.LENGTH_SHORT).show()
-                                    val listRes = com.zoomrecord.app.backend.ServerRecorderClient.fetchRecordings(context)
-                                    val items = listRes.getOrNull().orEmpty()
-                                    if (items.isEmpty()) {
-                                        Toast.makeText(context, "No recordings found on website", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        var downloadedCount = 0
-                                        for (item in items) {
-                                            val fileRes = com.zoomrecord.app.backend.ServerRecorderClient.downloadRecording(context, item.id, item.fileName)
-                                            if (fileRes.isSuccess) downloadedCount++
-                                        }
-                                        viewModel.load()
-                                        Toast.makeText(context, "✅ Synced $downloadedCount video(s) from website!", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudDownload,
-                            contentDescription = "Sync from Website",
-                            tint = Color(0xFF10B981),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-
-                    // Upload Mobile Records to Website Cloud Vault
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFEFF6FF))
-                            .clickable {
-                                scope.launch {
-                                    val dir = com.zoomrecord.app.library.RecordingsRepository.getRecordingsDir(context)
-                                    val files = dir.listFiles()?.filter { it.isFile && it.extension.equals("mp4", ignoreCase = true) } ?: emptyList()
-                                    if (files.isEmpty()) {
-                                        Toast.makeText(context, "No local recordings on phone to upload", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Uploading ${files.size} phone recording(s) to Website Cloud Storage...", Toast.LENGTH_SHORT).show()
-                                        var uploadedCount = 0
-                                        for (file in files) {
-                                            val uploadRes = com.zoomrecord.app.backend.ServerRecorderClient.uploadMobileRecordingToCloud(context, file)
-                                            if (uploadRes.isSuccess) uploadedCount++
-                                        }
-                                        Toast.makeText(context, "✅ Stored $uploadedCount mobile recording(s) in Website Cloud Vault!", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudUpload,
-                            contentDescription = "Upload to Cloud Vault",
-                            tint = Color(0xFF0D72FF),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-
                     Box(
                         modifier = Modifier
                             .size(40.dp)
@@ -438,6 +372,15 @@ fun RecordingsListScreen(
                                             )
                                         )
                                     },
+                                    onShareAudio = {
+                                        item.audioUri?.let { aUri ->
+                                            context.startActivity(
+                                                android.content.Intent.createChooser(
+                                                    repo.shareAudioIntent(aUri), "Share MP3 Audio"
+                                                )
+                                            )
+                                        }
+                                    },
                                     onRename = { itemToRename = item },
                                     onDelete = { itemToDelete = item },
                                 )
@@ -519,6 +462,7 @@ private fun MeetProRecordingCard(
     onQuickDownload: () -> Unit,
     onCustomDownload: () -> Unit,
     onShare: () -> Unit,
+    onShareAudio: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -602,6 +546,22 @@ private fun MeetProRecordingCard(
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
+                    if (item.audioUri != null) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xFFF3E8FF))
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        ) {
+                            Text(
+                                text = "🎵 MP3",
+                                color = Color(0xFF7E22CE),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = formatSize(item.sizeBytes),
@@ -661,13 +621,23 @@ private fun MeetProRecordingCard(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Share Recording") },
+                        text = { Text("Share Video (MP4)") },
                         leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
                         onClick = {
                             menuExpanded = false
                             onShare()
                         }
                     )
+                    if (item.audioUri != null) {
+                        DropdownMenuItem(
+                            text = { Text("Share Audio (MP3)") },
+                            leadingIcon = { Icon(Icons.Default.Audiotrack, contentDescription = null, tint = Color(0xFF7E22CE)) },
+                            onClick = {
+                                menuExpanded = false
+                                onShareAudio()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Rename") },
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },

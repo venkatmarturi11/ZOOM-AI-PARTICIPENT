@@ -41,6 +41,28 @@ class ScreenEncoder(
     @Volatile
     private var running = true
 
+    @Volatile
+    var isPaused: Boolean = false
+        private set
+
+    fun pause() {
+        isPaused = true
+        Log.i(TAG, "ScreenEncoder paused")
+    }
+
+    fun resume() {
+        isPaused = false
+        try {
+            val params = android.os.Bundle().apply {
+                putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
+            }
+            codec.setParameters(params)
+            Log.i(TAG, "ScreenEncoder resumed — requested sync frame")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to request sync frame on resume", e)
+        }
+    }
+
     /**
      * Configures and starts the H.264 encoder + VirtualDisplay pipeline.
      * Must be called from a thread that can tolerate blocking (the drain
@@ -110,7 +132,9 @@ class ScreenEncoder(
                 outIndex >= 0 -> {
                     val buf = codec.getOutputBuffer(outIndex) ?: continue
 
-                    if (bufferInfo.size > 0 && trackIndex >= 0) {
+                    if (!isPaused && bufferInfo.size > 0 && trackIndex >= 0 &&
+                        (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0
+                    ) {
                         buf.position(bufferInfo.offset)
                         buf.limit(bufferInfo.offset + bufferInfo.size)
                         onEncodedFrame(trackIndex, buf, bufferInfo)

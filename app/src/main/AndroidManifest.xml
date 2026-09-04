@@ -21,6 +21,26 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!-- Floating REC Overlay over Zoom -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Queries for Zoom Cloud Meetings package visibility (Android 11+ / API 30+) -->
+    <queries>
+        <package android:name="us.zoom.videomeetings" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="zoomus" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="zoommtg" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <!-- Phone state for pausing audio during calls -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
@@ -36,6 +56,7 @@
         android:theme="@style/Theme.ZoomRecord"
         tools:targetApi="35">
 
+        <!-- Main ZoomRecord App (Full UI, Zoom Bot, Floating HUD, Auth, Library) -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -52,7 +73,25 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="meetpro" />
             </intent-filter>
+            <!-- Share Target: allows sharing Zoom links from other apps into MeetPro -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
+
+        <!-- Standalone Screen & Internal Audio Recorder Activity & Service -->
+        <activity
+            android:name="com.zoomrecord.recorder.MainActivity"
+            android:exported="true"
+            android:label="Internal Screen Recorder"
+            android:theme="@style/AppTheme" />
+
+        <service
+            android:name="com.zoomrecord.recorder.RecordingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <!-- Screen recording foreground service -->
         <service
@@ -60,11 +99,20 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection|microphone" />
 
-        <!-- Bot silent meeting recording service -->
+        <!-- Zoom AI Participant Autonomous Bot Accessibility Service -->
         <service
-            android:name=".recording.BotMeetingService"
-            android:exported="false"
-            android:foregroundServiceType="microphone|mediaPlayback|mediaProjection" />
+            android:name=".zoom.ZoomBotAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:label="@string/zoom_bot_accessibility_name"
+            android:description="@string/zoom_bot_accessibility_description"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/zoom_bot_accessibility_service" />
+        </service>
 
         <!-- FileProvider for sharing recorded MP4 files safely -->
         <provider

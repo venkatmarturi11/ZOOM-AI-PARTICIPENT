@@ -54,13 +54,14 @@ object ServerRecorderClient {
     private const val PREFS_NAME = "server_recorder_config"
     private const val KEY_BASE_URL = "server_base_url"
 
-    // Default backend URL: Auto-configured to your 24/7 Render Cloud Server
-    const val DEFAULT_BASE_URL = "https://zoom-ai-participent.onrender.com"
+    // 24/7 Free Cloud Server (Hosted on Render, 0 cost, no credit cards, no PC required)
+    const val CLOUD_BASE_URL = "https://zoom-ai-participent.onrender.com"
+    const val DEFAULT_BASE_URL = CLOUD_BASE_URL
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(90, TimeUnit.SECONDS) // Generous timeout for free cloud cold-starts
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
     fun getBaseUrl(context: Context): String {
@@ -72,6 +73,56 @@ object ServerRecorderClient {
         val clean = url.trim().trimEnd('/')
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_BASE_URL, clean).apply()
+    }
+
+    /**
+     * Pre-warms the free cloud server in the background so it's awake before user clicks deploy.
+     */
+    fun warmUpCloudServer() {
+        try {
+            val req = Request.Builder().url("$CLOUD_BASE_URL/api/health").get().build()
+            httpClient.newCall(req).enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) { response.close() }
+            })
+            Log.d(TAG, "Sent background warm-up ping to Cloud Server")
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Resolves the active backend:
+     * - First tries local PC if on same WiFi (for 10ms speed when home).
+     * - Seamlessly falls back to 24/7 Render Cloud (no PC needed) anywhere in the world.
+     */
+    suspend fun resolveActiveBaseUrl(context: Context): String = withContext(Dispatchers.IO) {
+        val userConfigured = getBaseUrl(context)
+
+        // If user explicitly configured something else, honor it
+        if (userConfigured != DEFAULT_BASE_URL && userConfigured.isNotBlank()) {
+            return@withContext userConfigured
+        }
+
+        // Fast probe local PC (1 second check in case home PC is running)
+        val probeClient = httpClient.newBuilder()
+            .connectTimeout(1000, TimeUnit.MILLISECONDS)
+            .readTimeout(1000, TimeUnit.MILLISECONDS)
+            .build()
+
+        val localCandidates = listOf("http://192.168.29.122:3000", "http://localhost:3000")
+        for (local in localCandidates) {
+            try {
+                val req = Request.Builder().url("$local/api/health").get().build()
+                val resp = probeClient.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    Log.i(TAG, "Resolved local PC recorder: $local")
+                    return@withContext local
+                }
+            } catch (_: Exception) {}
+        }
+
+        // Default to 24/7 Cloud (works everywhere without PC!)
+        Log.i(TAG, "Resolved 24/7 Cloud Server: $CLOUD_BASE_URL")
+        CLOUD_BASE_URL
     }
 
     /**
@@ -87,7 +138,7 @@ object ServerRecorderClient {
         zoomPassword: String? = null
     ): Result<ServerRecordingResult> = withContext(Dispatchers.IO) {
         try {
-            val base = getBaseUrl(context)
+            val base = resolveActiveBaseUrl(context)
             val json = JSONObject().apply {
                 put("meetingUrl", meetingUrl)
                 if (!passcode.isNullOrBlank()) put("passcode", passcode)
@@ -170,7 +221,7 @@ object ServerRecorderClient {
      */
     suspend fun getActiveStatus(context: Context): Result<ActiveRecordingStatus> = withContext(Dispatchers.IO) {
         try {
-            val base = getBaseUrl(context)
+            val base = resolveActiveBaseUrl(context)
             val request = Request.Builder()
                 .url("$base/api/bot/active")
                 .get()
@@ -205,7 +256,7 @@ object ServerRecorderClient {
      */
     suspend fun stopRecording(context: Context, meetingId: String? = null): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val base = getBaseUrl(context)
+            val base = resolveActiveBaseUrl(context)
             val json = JSONObject().apply {
                 if (!meetingId.isNullOrBlank()) put("meetingId", meetingId)
             }
@@ -235,7 +286,7 @@ object ServerRecorderClient {
      */
     suspend fun fetchRecordings(context: Context): Result<List<ServerRecordingItem>> = withContext(Dispatchers.IO) {
         try {
-            val base = getBaseUrl(context)
+            val base = resolveActiveBaseUrl(context)
             val request = Request.Builder()
                 .url("$base/api/recordings")
                 .get()
@@ -281,7 +332,7 @@ object ServerRecorderClient {
         onProgress: ((Float) -> Unit)? = null
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
-            val base = getBaseUrl(context)
+            val base = resolveActiveBaseUrl(context)
             val url = "$base/api/recordings/$recordingId/download"
 
             val request = Request.Builder()

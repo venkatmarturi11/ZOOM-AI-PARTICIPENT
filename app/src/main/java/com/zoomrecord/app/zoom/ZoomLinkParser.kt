@@ -3,114 +3,104 @@ package com.zoomrecord.app.zoom
 import android.net.Uri
 
 /**
- * Parses Zoom meeting links into meeting ID and passcode.
+ * Robust parser for Zoom meeting links and meeting IDs.
  *
  * Supported formats:
- * - https://zoom.us/j/1234567890?pwd=xxxx
- * - https://us04web.zoom.us/j/1234567890?pwd=xxxx
- * - https://zoom.us/w/1234567890?pwd=xxxx
- * - zoommtg://zoom.us/join?action=join&confno=1234567890&pwd=xxxx
- * - Direct meeting numbers: "123 456 7890", "1234567890"
+ * - Standard meeting: https://zoom.us/j/1234567890?pwd=xxxx
+ * - Subdomain meeting: https://us04web.zoom.us/j/1234567890?pwd=xxxx
+ * - Webinar link: https://us06web.zoom.us/w/1234567890?pwd=xxxx
+ * - Webinar registration: https://us06web.zoom.us/webinar/register/WN_xxxx
+ * - Meeting registration: https://zoom.us/meeting/register/xxxx
+ * - Deep links: zoommtg://zoom.us/join?action=join&confno=1234567890&pwd=xxxx
+ * - Direct numbers: "123 456 7890", "1234567890"
  */
 object ZoomLinkParser {
+
+    private val DIGITS_9_TO_11_REGEX = Regex("""\b(\d{9,11})\b""")
 
     data class ParsedMeeting(
         val meetingNumber: String,
         val password: String = "",
         val originalInput: String = "",
         val webClientUrl: String = "",
+        val zoomDeepLinkUri: String = "",
+        val isWebLink: Boolean = false,
     )
 
     /**
-     * Parses a user input string (either a URL or direct meeting number)
-     * and extracts the meeting ID, passcode, and constructed web client URL.
+     * Parses user input (URL or raw meeting ID) into meeting components.
      */
     fun parse(input: String, displayName: String = ""): ParsedMeeting {
         val trimmed = input.trim()
         if (trimmed.isEmpty()) return ParsedMeeting("", "", "")
 
+        val isUrl = trimmed.startsWith("http://", ignoreCase = true) ||
+                    trimmed.startsWith("https://", ignoreCase = true) ||
+                    trimmed.startsWith("zoommtg://", ignoreCase = true) ||
+                    trimmed.startsWith("zoomus://", ignoreCase = true)
+
         var meetingId = ""
         var pwd = ""
 
-        // Check if input is a Zoom registration link or direct web link
-        if (trimmed.contains("/register", ignoreCase = true) ||
-            trimmed.contains("/meeting/register", ignoreCase = true) ||
-            trimmed.contains("/webinar/register", ignoreCase = true)
-        ) {
-            var extractedId = ""
-            var extractedPwd = ""
-            try {
-                val uri = Uri.parse(trimmed)
-                for (seg in uri.pathSegments) {
-                    val digits = seg.filter { it.isDigit() }
-                    if (digits.length in 9..11) {
-                        extractedId = digits
-                        break
-                    }
-                }
-                extractedPwd = uri.getQueryParameter("pwd") ?: ""
-            } catch (_: Exception) {}
-
-            if (extractedId.isNotEmpty()) {
-                val directUrl = buildWebClientUrl(
-                    meetingNumber = extractedId,
-                    password = extractedPwd,
-                    displayName = displayName,
-                    originalInput = trimmed
-                )
-                return ParsedMeeting(
-                    meetingNumber = extractedId,
-                    password = extractedPwd,
-                    originalInput = trimmed,
-                    webClientUrl = directUrl,
-                )
-            }
-        }
-
-        // Check if input is a URL
-        if (trimmed.startsWith("http://", ignoreCase = true) ||
-            trimmed.startsWith("https://", ignoreCase = true) ||
-            trimmed.startsWith("zoommtg://", ignoreCase = true)
-        ) {
+        if (isUrl) {
             try {
                 val uri = Uri.parse(trimmed)
                 val pathSegments = uri.pathSegments
 
+                // 1. Check path segments after /j/, /w/, /wc/, /join/
                 for (i in pathSegments.indices) {
                     val seg = pathSegments[i].lowercase()
                     if (seg == "j" || seg == "w" || seg == "wc" || seg == "join" || seg == "start") {
                         if (i + 1 < pathSegments.size) {
                             val candidate = pathSegments[i + 1].filter { it.isDigit() }
-                            if (candidate.length >= 9) {
+                            if (candidate.length in 9..11) {
                                 meetingId = candidate
                                 break
                             }
                         }
                     }
-                    val directDigits = seg.filter { it.isDigit() }
-                    if (directDigits.length in 9..11) {
-                        meetingId = directDigits
-                        break
+                }
+
+                // 2. Scan path segments for any segment that is strictly 9..11 digits
+                if (meetingId.isEmpty()) {
+                    for (seg in pathSegments) {
+                        val digits = seg.filter { it.isDigit() }
+                        if (digits.length in 9..11) {
+                            meetingId = digits
+                            break
+                        }
                     }
                 }
 
-                // Check query params if not found in path
+                // 3. Check query parameters: confno, mid, id
                 if (meetingId.isEmpty()) {
                     val confNo = uri.getQueryParameter("confno")
                         ?: uri.getQueryParameter("mid")
                         ?: uri.getQueryParameter("id")
                     if (confNo != null) {
-                        meetingId = confNo.filter { it.isDigit() }
+                        val digits = confNo.filter { it.isDigit() }
+                        if (digits.length in 9..11) {
+                            meetingId = digits
+                        }
+                    }
+                }
+
+                // 4. Regex fallback: search the URI path for 9..11 consecutive digits
+                if (meetingId.isEmpty()) {
+                    val match = DIGITS_9_TO_11_REGEX.find(uri.path ?: "")
+                    if (match != null) {
+                        meetingId = match.groupValues[1]
                     }
                 }
 
                 pwd = uri.getQueryParameter("pwd") ?: ""
             } catch (_: Exception) {}
-        }
-
-        // If not a URL or meetingId still empty, extract digits as meeting number
-        if (meetingId.isEmpty()) {
-            meetingId = trimmed.filter { it.isDigit() }
+        } else {
+            // Direct number input: strip spaces and verify digit length
+            val digits = trimmed.filter { it.isDigit() }
+            if (digits.length in 9..11) {
+                meetingId = digits
+            }
         }
 
         val finalUrl = buildWebClientUrl(
@@ -120,11 +110,21 @@ object ZoomLinkParser {
             originalInput = trimmed,
         )
 
+        val deepLink = if (meetingId.isNotEmpty()) {
+            ZoomAppLauncher.buildZoomDeepLink(
+                meetingNumber = meetingId,
+                password = pwd,
+                displayName = displayName
+            ).toString()
+        } else ""
+
         return ParsedMeeting(
             meetingNumber = meetingId,
             password = pwd,
             originalInput = trimmed,
             webClientUrl = finalUrl,
+            zoomDeepLinkUri = deepLink,
+            isWebLink = isUrl,
         )
     }
 

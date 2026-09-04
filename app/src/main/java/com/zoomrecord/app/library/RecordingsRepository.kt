@@ -167,6 +167,9 @@ class RecordingsRepository(private val context: Context) {
                     retriever.release()
                 } catch (_: Exception) {}
 
+                val mp3Companion = File(file.parentFile, "${file.nameWithoutExtension}.mp3")
+                val audioUri = if (mp3Companion.exists() && mp3Companion.length() > 0) Uri.fromFile(mp3Companion) else null
+
                 results += RecordingItem(
                     uri = Uri.fromFile(file),
                     displayName = file.nameWithoutExtension,
@@ -175,6 +178,7 @@ class RecordingsRepository(private val context: Context) {
                     width = width,
                     height = height,
                     dateAddedEpochSec = file.lastModified() / 1000,
+                    audioUri = audioUri,
                 )
             }
         }
@@ -274,8 +278,8 @@ class RecordingsRepository(private val context: Context) {
 
             // 2. If we know the file name (or base name), clean up from all possible local recording folders
             if (targetFileName.isNotBlank()) {
-                val baseName = targetFileName.removeSuffix(".mp4")
-                val candidateNames = listOf(targetFileName, "$baseName.mp4")
+                val baseName = targetFileName.removeSuffix(".mp4").removeSuffix(".mp3").removeSuffix(".webm")
+                val candidateNames = listOf(targetFileName, "$baseName.mp4", "$baseName.mp3", "$baseName.m4a", "$baseName.webm")
 
                 val targetDirs = listOfNotNull(
                     getRecordingsDir(context),
@@ -323,7 +327,7 @@ class RecordingsRepository(private val context: Context) {
                     MediaScannerConnection.scanFile(
                         context,
                         pathsToScan.toTypedArray(),
-                        Array(pathsToScan.size) { "video/mp4" },
+                        null,
                         null
                     )
                 }
@@ -336,20 +340,30 @@ class RecordingsRepository(private val context: Context) {
     }
 
     /**
-     * Renames a recording.
+     * Renames a recording and its companion MP3 file if present.
      */
     fun rename(uri: Uri, newDisplayName: String): Boolean {
         return try {
-            val cleanName = newDisplayName.removeSuffix(".mp4")
+            val cleanName = newDisplayName.removeSuffix(".mp4").removeSuffix(".mp3")
             if (uri.scheme == "file") {
                 val oldFile = File(uri.path ?: return false)
                 val newFile = File(oldFile.parentFile, "$cleanName.mp4")
                 val renamed = oldFile.renameTo(newFile)
                 if (renamed) {
+                    val scanPaths = mutableListOf(oldFile.absolutePath, newFile.absolutePath)
+                    // Also rename companion MP3 if exists
+                    val oldMp3 = File(oldFile.parentFile, "${oldFile.nameWithoutExtension}.mp3")
+                    if (oldMp3.exists()) {
+                        val newMp3 = File(oldFile.parentFile, "$cleanName.mp3")
+                        if (oldMp3.renameTo(newMp3)) {
+                            scanPaths.add(oldMp3.absolutePath)
+                            scanPaths.add(newMp3.absolutePath)
+                        }
+                    }
                     MediaScannerConnection.scanFile(
                         context,
-                        arrayOf(oldFile.absolutePath, newFile.absolutePath),
-                        arrayOf("video/mp4", "video/mp4"),
+                        scanPaths.toTypedArray(),
+                        null,
                         null
                     )
                 }
@@ -371,6 +385,29 @@ class RecordingsRepository(private val context: Context) {
      */
     fun shareIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).apply {
         type = "video/mp4"
+        val shareableUri = if (uri.scheme == "file") {
+            try {
+                val file = File(uri.path ?: "")
+                FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file,
+                )
+            } catch (_: Exception) {
+                uri
+            }
+        } else {
+            uri
+        }
+        putExtra(Intent.EXTRA_STREAM, shareableUri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    /**
+     * Creates a share intent for sharing companion MP3 audio.
+     */
+    fun shareAudioIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).apply {
+        type = "audio/mp3"
         val shareableUri = if (uri.scheme == "file") {
             try {
                 val file = File(uri.path ?: "")

@@ -7,15 +7,15 @@ import android.content.SharedPreferences
  * Data model for Zoom account user profile credentials.
  */
 data class UserProfile(
-    val firstName: String = "Arjun",
-    val lastName: String = "User",
-    val email: String = "228a1a4255@risekrishnasaiprakasam.edu.in",
-    val phone: String = "9876543210",
+    val firstName: String = "venkateswarlu",
+    val lastName: String = "marturi",
+    val email: String = "venkatmarturi11@gmail.com",
+    val phone: String = "8074038968",
     val zoomPassword: String = "naniv401",
     val autoLoginZoomFirst: Boolean = true,
 ) {
     val fullName: String
-        get() = "$firstName $lastName".trim().ifEmpty { firstName.ifEmpty { "Arjun User" } }
+        get() = "$firstName $lastName".trim().ifEmpty { firstName.ifEmpty { "venkateswarlu marturi" } }
 
     val isConfigured: Boolean
         get() = true
@@ -41,10 +41,10 @@ class UserProfileStore(context: Context) {
         private const val KEY_ZOOM_PASSWORD = "zoom_password"
         private const val KEY_AUTO_LOGIN = "auto_login_zoom_first"
 
-        const val FIXED_EMAIL = "228a1a4255@risekrishnasaiprakasam.edu.in"
+        const val FIXED_EMAIL = "venkatmarturi11@gmail.com"
         const val FIXED_PASSWORD = "naniv401"
-        const val FIXED_FIRST_NAME = "Arjun"
-        const val FIXED_LAST_NAME = "User"
+        const val FIXED_FIRST_NAME = "venkateswarlu"
+        const val FIXED_LAST_NAME = "marturi"
     }
 
     /**
@@ -60,7 +60,7 @@ class UserProfileStore(context: Context) {
             firstName = firstName,
             lastName = lastName,
             email = email,
-            phone = prefs.getString(KEY_PHONE, "9876543210") ?: "9876543210",
+            phone = prefs.getString(KEY_PHONE, "8074038968") ?: "8074038968",
             zoomPassword = zoomPassword,
             autoLoginZoomFirst = prefs.getBoolean(KEY_AUTO_LOGIN, true),
         )

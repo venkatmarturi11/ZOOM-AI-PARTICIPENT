@@ -84,8 +84,20 @@ class MeetingViewModel(private val context: Context) : ViewModel() {
         _uiState.update { it.copy(autoRecordOnJoin = enabled) }
     }
 
+    fun toggleShowFloatingHud(enabled: Boolean) {
+        _uiState.update { it.copy(showFloatingHud = enabled) }
+    }
+
+    fun toggleAudioBoost(enabled: Boolean) {
+        _uiState.update { it.copy(audioBoostEnabled = enabled) }
+    }
+
     fun toggleDontConnectAudio(enabled: Boolean) {
         _uiState.update { it.copy(dontConnectAudio = enabled) }
+    }
+
+    fun toggleSpeakerOutput(enabled: Boolean) {
+        _uiState.update { it.copy(speakerOutputEnabled = enabled) }
     }
 
     fun toggleTurnOffVideo(enabled: Boolean) {
@@ -172,10 +184,13 @@ data class MeetingUiState(
     val webClientUrl: String = "",
     val isLinkDetected: Boolean = false,
 
-    // Join options
-    val autoRecordOnJoin: Boolean = true, // Default auto-record on join
-    val dontConnectAudio: Boolean = false, // Default false: Mobile speaker audio connected (User can toggle Silent Mode)
-    val turnOffVideo: Boolean = true,     // Default camera off for bot
+    // Join & Recording options
+    val autoRecordOnJoin: Boolean = true,   // Default auto-record on join (1080p + Audio)
+    val showFloatingHud: Boolean = true,     // Floating timer & Stop HUD overlay over Zoom
+    val audioBoostEnabled: Boolean = true,   // 2.5x high-gain audio speech boost with soft limiter
+    val speakerOutputEnabled: Boolean = true,  // Default true: Speaker ON so mic captures meeting audio (only reliable capture path)
+    val dontConnectAudio: Boolean = false,  // Default false: Connect to audio in Zoom
+    val turnOffVideo: Boolean = true,        // Default camera off for bot
 
     // Bot state
     val botStatus: BotStatus = BotStatus.IDLE,
@@ -186,4 +201,7 @@ data class MeetingUiState(
     val estimate30MinBytes: Long = 0,
     val estimate60MinBytes: Long = 0,
     val hasEnoughStorage: Boolean = true,
-)
+) {
+    val meetingInput: String
+        get() = meetingLinkOrId
+}

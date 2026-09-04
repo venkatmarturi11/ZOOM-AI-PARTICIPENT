@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -151,9 +152,17 @@ fun RecordingPlaybackScreen(
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory)
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .build(),
+                true
+            )
             .build().apply {
                 val mediaItem = MediaItem.fromUri(playableUri)
                 setMediaItem(mediaItem)
+                volume = 1.0f
                 prepare()
                 playWhenReady = true
             }
@@ -520,6 +529,47 @@ fun RecordingPlaybackScreen(
                     Text(
                         text = "Quick Save to Downloads Folder",
                         color = Color(0xFF0D72FF),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Button 3: Share/Export Synced MP3 Audio
+                OutlinedButton(
+                    onClick = {
+                        val audioUri = item.audioUri ?: run {
+                            val path = item.uri.path
+                            if (path != null) {
+                                val extractedPath = com.zoomrecord.app.recording.AudioExtractor.extractAudioFromMp4(context, path)
+                                if (extractedPath != null) Uri.fromFile(File(extractedPath)) else null
+                            } else null
+                        }
+                        if (audioUri != null) {
+                            context.startActivity(
+                                android.content.Intent.createChooser(
+                                    repo.shareAudioIntent(audioUri), "Share Synced MP3 Audio"
+                                )
+                            )
+                        } else {
+                            Toast.makeText(context, "Extracting MP3 audio...", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Audiotrack,
+                        contentDescription = "Share MP3",
+                        modifier = Modifier.size(18.dp),
+                        tint = Color(0xFF7E22CE),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Share Synced MP3 Audio",
+                        color = Color(0xFF7E22CE),
                         fontWeight = FontWeight.SemiBold,
                     )
                 }

@@ -23,11 +23,20 @@ import androidx.compose.material3.MaterialTheme
  */
 class MainActivity : ComponentActivity() {
 
+    private val navigationTarget = androidx.compose.runtime.mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val deepLinkUri = intent?.data?.toString()
+        val sharedText = if (intent?.action == android.content.Intent.ACTION_SEND) {
+            intent?.getStringExtra(android.content.Intent.EXTRA_TEXT)
+        } else null
+        val deepLinkUri = sharedText ?: intent?.data?.toString()
+        val target = intent?.getStringExtra("navigate_to")
+        if (!target.isNullOrBlank()) {
+            navigationTarget.value = target
+        }
 
         setContent {
             ZoomRecordTheme {
@@ -46,9 +55,19 @@ class MainActivity : ComponentActivity() {
                         navController = navController,
                         authViewModel = authViewModel,
                         initialDeepLink = deepLinkUri,
+                        navigationTarget = navigationTarget.value,
                     )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val target = intent.getStringExtra("navigate_to")
+        if (!target.isNullOrBlank()) {
+            navigationTarget.value = target
         }
     }
 }

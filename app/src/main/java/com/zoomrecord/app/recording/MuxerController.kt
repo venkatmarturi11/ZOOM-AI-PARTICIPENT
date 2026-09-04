@@ -44,25 +44,60 @@ class MuxerController(
     private val pendingSamples = mutableListOf<PendingSample>()
     private var firstVideoKeyFrameSeen = false
 
-    // Independent timeline rebasing per track
-    private var videoBaseTimeUs = -1L
-    private var audioBaseTimeUs = -1L
+    // Shared timeline base for BOTH tracks, anchored at the first accepted video keyframe.
+    // Using one shared reference point (instead of rebasing each track to its own first
+    // sample independently) is what keeps audio and video pinned to the same real-world
+    // instant — video and audio pipelines have different startup latencies, and rebasing
+    // them separately silently discarded that gap, causing a fixed sync offset.
+    private var sharedBaseTimeUs = -1L
     private var lastVideoPtsUs = -1L
     private var lastAudioPtsUs = -1L
+
+    @Volatile
+    private var isPaused = false
+    private var pauseStartTimeNs = 0L
+    private var totalPausedTimeUs = 0L
+
+    fun pause() = synchronized(lock) {
+        if (!isPaused) {
+            isPaused = true
+            pauseStartTimeNs = System.nanoTime()
+            Log.i(TAG, "MuxerController paused — dropping incoming samples")
+        }
+    }
+
+    fun resume() = synchronized(lock) {
+        if (isPaused) {
+            isPaused = false
+            if (pauseStartTimeNs > 0L) {
+                val pausedDurationUs = (System.nanoTime() - pauseStartTimeNs) / 1000L
+                totalPausedTimeUs += maxOf(0L, pausedDurationUs)
+            }
+            pauseStartTimeNs = 0L
+            Log.i(TAG, "MuxerController resumed — total paused duration: ${totalPausedTimeUs / 1000}ms")
+        }
+    }
 
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
     private var timeoutFuture: ScheduledFuture<*>? = null
 
     init {
-        // Fallback: If 10s passes and only 1 track is registered, start muxer anyway
+        // Fallback: if the audio track still hasn't registered after a generous window,
+        // start muxer video-only rather than block the recording forever. 10s was too tight —
+        // a slow RECORD_AUDIO permission dialog, a slow AudioRecord/codec warm-up on some
+        // devices, or MediaProjection audio-capture consent handling can all easily take
+        // longer than that, and once this fires, audio can never attach for the rest of the
+        // recording (see addAudioTrack's `!started` guard). If you see the warning below in
+        // logcat, that's the smoking gun for "video with no audio at all."
         timeoutFuture = scheduler.schedule({
             synchronized(lock) {
                 if (!started && videoTrack != -1) {
-                    Log.w(TAG, "Timeout reached for second track. Starting muxer with available track(s)...")
+                    Log.w(TAG, "AUDIO TRACK NEVER REGISTERED within timeout — starting muxer VIDEO-ONLY. " +
+                        "This recording will have no audio. Check AudioEncoder logs for why audio setup was slow or failed.")
                     startMuxerLocked()
                 }
             }
-        }, 10000, TimeUnit.MILLISECONDS)
+        }, 20000, TimeUnit.MILLISECONDS)
     }
 
     fun addVideoTrack(format: MediaFormat): Int = synchronized(lock) {
@@ -100,6 +135,16 @@ class MuxerController(
     private fun startMuxerLocked() {
         if (started || videoTrack == -1) return
         try {
+            // Anchor timeline to the first video keyframe in pending samples if available
+            val keyframeSample = pendingSamples.firstOrNull {
+                it.track == videoTrack && (it.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
+            }
+            if (keyframeSample != null && sharedBaseTimeUs == -1L) {
+                firstVideoKeyFrameSeen = true
+                sharedBaseTimeUs = keyframeSample.presentationTimeUs
+                Log.i(TAG, "Muxer: Anchored sharedBaseTimeUs=$sharedBaseTimeUs from buffered keyframe")
+            }
+
             muxer.start()
             started = true
             timeoutFuture?.cancel(false)
@@ -123,7 +168,7 @@ class MuxerController(
     }
 
     fun writeSample(track: Int, buffer: ByteBuffer, info: MediaCodec.BufferInfo) = synchronized(lock) {
-        if (track < 0) return
+        if (track < 0 || isPaused) return
 
         if (!started) {
             if (pendingSamples.size < MAX_PENDING_SAMPLES) {
@@ -158,15 +203,18 @@ class MuxerController(
         presentationTimeUs: Long,
         flags: Int
     ) {
-        if (!started || track < 0 || size <= 0) return
+        if (!started || track < 0 || size <= 0 || isPaused) return
+
+        // MediaMuxer forbids writing codec-specific data via writeSampleData (it must only come from addTrack)
+        if ((flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) return
 
         // For video track, ensure the first written sample is a keyframe
         if (track == videoTrack && !firstVideoKeyFrameSeen) {
             if ((flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0) {
                 firstVideoKeyFrameSeen = true
-                if (videoBaseTimeUs == -1L && presentationTimeUs >= 0L) {
-                    videoBaseTimeUs = presentationTimeUs
-                    Log.i(TAG, "Muxer timeline anchored to first video keyframe: videoBaseTimeUs=$videoBaseTimeUs")
+                if (sharedBaseTimeUs == -1L && presentationTimeUs >= 0L) {
+                    sharedBaseTimeUs = presentationTimeUs
+                    Log.i(TAG, "Muxer: First video keyframe accepted at PTS=$presentationTimeUs, sharedBaseTimeUs=$sharedBaseTimeUs")
                 }
             } else {
                 // Drop pre-keyframe delta frames to ensure 100% playable/seekable video
@@ -174,27 +222,27 @@ class MuxerController(
             }
         }
 
-        // Enforce strictly monotonic timestamps per track with independent timeline rebasing
+        // Align audio start: drop pre-video audio samples so audio and video begin at the exact same moment
+        if (track == audioTrack && !firstVideoKeyFrameSeen) {
+            return
+        }
+
+        // Rebase both tracks against the SAME shared base and subtract paused duration
+        // identically, so audio and video stay locked to one real-world timeline.
         val finalPtsUs = if (track == videoTrack) {
-            if (videoBaseTimeUs == -1L && presentationTimeUs >= 0L) {
-                videoBaseTimeUs = presentationTimeUs
-                Log.i(TAG, "Video timeline rebased: base=$videoBaseTimeUs")
-            }
-            val rebasedPts = if (videoBaseTimeUs > 0L) maxOf(0L, presentationTimeUs - videoBaseTimeUs) else maxOf(0L, presentationTimeUs)
-            val nextPts = if (rebasedPts > lastVideoPtsUs) rebasedPts else lastVideoPtsUs + 1L
+            val rebased = if (sharedBaseTimeUs >= 0L) maxOf(0L, presentationTimeUs - sharedBaseTimeUs) else maxOf(0L, presentationTimeUs)
+            val adjustedPts = maxOf(0L, rebased - totalPausedTimeUs)
+            val nextPts = if (adjustedPts > lastVideoPtsUs) adjustedPts else lastVideoPtsUs + 1L
             lastVideoPtsUs = nextPts
             nextPts
         } else if (track == audioTrack) {
-            if (audioBaseTimeUs == -1L && presentationTimeUs >= 0L) {
-                audioBaseTimeUs = presentationTimeUs
-                Log.i(TAG, "Audio timeline rebased: base=$audioBaseTimeUs")
-            }
-            val rebasedPts = if (audioBaseTimeUs > 0L) maxOf(0L, presentationTimeUs - audioBaseTimeUs) else maxOf(0L, presentationTimeUs)
-            val nextPts = if (rebasedPts > lastAudioPtsUs) rebasedPts else lastAudioPtsUs + 1L
+            val rebased = if (sharedBaseTimeUs >= 0L) maxOf(0L, presentationTimeUs - sharedBaseTimeUs) else maxOf(0L, presentationTimeUs)
+            val adjustedPts = maxOf(0L, rebased - totalPausedTimeUs)
+            val nextPts = if (adjustedPts > lastAudioPtsUs) adjustedPts else lastAudioPtsUs + 1L
             lastAudioPtsUs = nextPts
             nextPts
         } else {
-            presentationTimeUs
+            maxOf(0L, presentationTimeUs - totalPausedTimeUs)
         }
 
         val info = MediaCodec.BufferInfo().apply {

@@ -19,8 +19,6 @@ import com.zoomrecord.app.library.ui.RecordingPlaybackScreen
 import com.zoomrecord.app.library.ui.RecordingsListScreen
 import com.zoomrecord.app.meeting.MeetingViewModel
 import com.zoomrecord.app.meeting.ui.JoinMeetingScreen
-import com.zoomrecord.app.meeting.ui.LiveBotScreen
-import com.zoomrecord.app.meeting.ui.MeetingActiveScreen
 import com.zoomrecord.app.ui.screens.HomeScreen
 import com.zoomrecord.app.ui.screens.SignInScreen
 import com.zoomrecord.app.ui.screens.WelcomeScreen
@@ -33,12 +31,9 @@ object Routes {
     const val SIGN_IN = "signin"
     const val HOME = "home"
     const val JOIN = "join"
-    const val MEETING_ACTIVE = "active/{meetingId}"
-    const val LIVE_BOT = "live_bot"
     const val RECORDINGS = "recordings"
     const val PLAYBACK = "playback/{uri}"
 
-    fun activeMeeting(meetingId: String): String = "active/${if (meetingId.isNotBlank()) meetingId else "zoom_meeting"}"
     fun playback(uri: Uri): String = "playback/${Uri.encode(uri.toString())}"
 }
 
@@ -50,6 +45,7 @@ fun AppNavigation(
     navController: NavHostController,
     authViewModel: AuthViewModel,
     initialDeepLink: String? = null,
+    navigationTarget: String? = null,
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as App
@@ -57,6 +53,14 @@ fun AppNavigation(
     val meetingViewModel: MeetingViewModel = viewModel(
         factory = MeetingViewModel.Factory(context)
     )
+
+    androidx.compose.runtime.LaunchedEffect(navigationTarget) {
+        if (navigationTarget == "recordings") {
+            navController.navigate(Routes.RECORDINGS) {
+                popUpTo(Routes.HOME) { inclusive = false }
+            }
+        }
+    }
 
     androidx.compose.runtime.LaunchedEffect(initialDeepLink) {
         if (!initialDeepLink.isNullOrBlank()) {
@@ -152,69 +156,13 @@ fun AppNavigation(
                         navController.navigate(Routes.HOME)
                     }
                 },
-                onJoined = {
-                    val mid = meetingViewModel.uiState.value.meetingNumber
-                    navController.navigate(Routes.activeMeeting(mid))
-                },
-                onNavigateToLiveBot = {
-                    navController.navigate(Routes.LIVE_BOT)
-                },
                 onNavigateToRecordings = {
                     navController.navigate(Routes.RECORDINGS)
                 },
             )
         }
 
-        // ── 5. Active In-Meeting Screen ──────────────────────────────
-        composable(
-            route = Routes.MEETING_ACTIVE,
-            arguments = listOf(navArgument("meetingId") { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val meetingId = backStackEntry.arguments?.getString("meetingId") ?: ""
-            val uiState = meetingViewModel.uiState.value
-            val webUrl = if (uiState.webClientUrl.isNotEmpty()) {
-                uiState.webClientUrl
-            } else {
-                com.zoomrecord.app.zoom.ZoomLinkParser.buildWebClientUrl(
-                    meetingNumber = meetingId,
-                    password = uiState.password,
-                    displayName = uiState.displayName,
-                    originalInput = uiState.meetingLinkOrId,
-                )
-            }
-
-            MeetingActiveScreen(
-                meetingId = meetingId,
-                webUrl = webUrl,
-                displayName = uiState.displayName,
-                password = uiState.password,
-                initiallyMuted = uiState.dontConnectAudio,
-                onLeave = {
-                    // Stop Screen Recording service to finalize MP4 video
-                    val stopIntent = android.content.Intent(
-                        context,
-                        com.zoomrecord.app.recording.ScreenRecordService::class.java
-                    ).apply {
-                        action = com.zoomrecord.app.recording.ScreenRecordService.ACTION_STOP
-                    }
-                    context.startService(stopIntent)
-
-                    val botStopIntent = android.content.Intent(
-                        context,
-                        com.zoomrecord.app.recording.BotMeetingService::class.java
-                    ).apply {
-                        action = com.zoomrecord.app.recording.BotMeetingService.ACTION_STOP_BOT
-                    }
-                    context.startService(botStopIntent)
-
-                    navController.navigate(Routes.RECORDINGS) {
-                        popUpTo(Routes.JOIN) { inclusive = true }
-                    }
-                },
-            )
-        }
-
-        // ── 6. Recordings Screen ─────────────────────────────────────
+        // ── 5. Recordings Screen ─────────────────────────────────────
         composable(Routes.RECORDINGS) {
             val repo = RecordingsRepository(context)
             val recordingsViewModel: RecordingsListViewModel = viewModel(
@@ -233,20 +181,6 @@ fun AppNavigation(
                 },
                 onJoinMeetingClick = {
                     navController.navigate(Routes.JOIN)
-                },
-            )
-        }
-
-        // ── 6b. Live Bot Monitor (Website Recorder Screen) ───────────
-        composable(Routes.LIVE_BOT) {
-            LiveBotScreen(
-                onNavigateBack = {
-                    if (!navController.popBackStack()) {
-                        navController.navigate(Routes.HOME)
-                    }
-                },
-                onNavigateToRecordings = {
-                    navController.navigate(Routes.RECORDINGS)
                 },
             )
         }

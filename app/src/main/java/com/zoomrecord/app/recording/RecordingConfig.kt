@@ -10,81 +10,110 @@ import android.util.DisplayMetrics
  * Tuned for smooth 30 FPS real-time encoding with zero lag and synchronized audio.
  */
 data class RecordingConfig(
-    val width: Int = 1280,
-    val height: Int = 720,
+    val width: Int = 1920,
+    val height: Int = 1080,
     val frameRate: Int = 30,             // 30 FPS rock-solid stable real-time encoding without frame drops
-    val videoBitrate: Int = 3_500_000,   // 3.5 Mbps crisp HD clarity with zero encoder buffer latency
-    val audioSampleRate: Int = 44_100,   // 44.1 kHz universally supported audio
-    val audioBitrate: Int = 128_000,     // 128 kbps pristine AAC
+    val videoBitrate: Int = 8_000_000,   // 8.0 Mbps pristine 1080p HD clarity for crisp meeting slides
+    val audioSampleRate: Int = 48_000,   // 48.0 kHz broadcast-standard audio
+    val audioBitrate: Int = 192_000,     // 192 kbps studio-fidelity AAC
     val iFrameInterval: Int = 1,         // Fast seeking IDR keyframe every second
-)
+) {
+    companion object {
+        /**
+         * Best quality configuration optimized for native Zoom app recording.
+         * 1080p Full HD video + 192 kbps 48kHz audio.
+         */
+        fun bestQuality(): RecordingConfig {
+            return RecordingConfig(
+                width = 1920,
+                height = 1080,
+                frameRate = 30,
+                videoBitrate = 8_000_000,
+                audioSampleRate = 48_000,
+                audioBitrate = 192_000,
+                iFrameInterval = 1,
+            )
+        }
+    }
+}
 
 /**
- * Dynamically fits recording dimensions to the device's landscape orientation.
- * Preserves the exact aspect ratio of any device (16:9, 18:9, 19.5:9, 20:9, 21:9, tablets)
- * without ever creating square 1:1 letterbox artifacts.
+ * Dynamically fits recording dimensions to the device's actual orientation (portrait or landscape).
+ * Preserves the exact aspect ratio of any device (16:9, 19.5:9, 20:9, 21:9, tablets)
+ * without stretching or letterboxing. Scales up to 1080p width/height for maximum clarity.
  */
 fun RecordingConfig.clampToDisplay(activity: Activity): RecordingConfig {
     val (screenWidth, screenHeight) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         val bounds = activity.windowManager.currentWindowMetrics.bounds
-        val w = maxOf(bounds.width(), bounds.height())
-        val h = minOf(bounds.width(), bounds.height())
-        w to h
+        bounds.width() to bounds.height()
     } else {
         val dm = DisplayMetrics()
         @Suppress("DEPRECATION")
         activity.windowManager.defaultDisplay.getRealMetrics(dm)
-        val w = maxOf(dm.widthPixels, dm.heightPixels)
-        val h = minOf(dm.widthPixels, dm.heightPixels)
-        w to h
+        dm.widthPixels to dm.heightPixels
     }
 
-    val maxW = 1280
-    val (finalW, finalH) = if (screenWidth > maxW && screenWidth > 0) {
-        val scale = maxW.toFloat() / screenWidth.toFloat()
-        val scaledH = (screenHeight * scale).toInt()
-        maxW to scaledH
+    val maxLongSide = 1920
+    val isLandscape = screenWidth >= screenHeight
+    val longSide = if (isLandscape) screenWidth else screenHeight
+    val shortSide = if (isLandscape) screenHeight else screenWidth
+
+    val (finalW, finalH) = if (longSide > maxLongSide && longSide > 0) {
+        val scale = maxLongSide.toFloat() / longSide.toFloat()
+        val scaledShort = (shortSide * scale).toInt()
+        if (isLandscape) maxLongSide to scaledShort else scaledShort to maxLongSide
     } else if (screenWidth > 0 && screenHeight > 0) {
         screenWidth to screenHeight
     } else {
-        1280 to 720
+        1920 to 1080
     }
 
-    // Enforce even dimensions for H.264 video encoders
-    val evenW = finalW - (finalW % 2)
-    val evenH = finalH - (finalH % 2)
+    // Enforce even dimensions required by H.264 video encoders
+    val evenW = (finalW - (finalW % 2)).coerceAtLeast(480)
+    val evenH = (finalH - (finalH % 2)).coerceAtLeast(480)
 
     return copy(
-        width = evenW.coerceAtLeast(640),
-        height = evenH.coerceAtLeast(360),
+        width = evenW,
+        height = evenH,
         frameRate = 30,
+        videoBitrate = 8_000_000,
+        audioSampleRate = 48_000,
+        audioBitrate = 192_000,
     )
 }
 
 /**
- * Convenience overload using system display metrics in landscape.
+ * Convenience overload using system display metrics.
  */
 fun RecordingConfig.clampToDisplay(): RecordingConfig {
     val dm = Resources.getSystem().displayMetrics
-    val screenWidth = maxOf(dm.widthPixels, dm.heightPixels)
-    val screenHeight = minOf(dm.widthPixels, dm.heightPixels)
+    val screenWidth = dm.widthPixels
+    val screenHeight = dm.heightPixels
 
-    val maxW = 960
-    val (finalW, finalH) = if (screenWidth > maxW && screenWidth > 0) {
-        val scale = maxW.toFloat() / screenWidth.toFloat()
-        val scaledH = (screenHeight * scale).toInt()
-        maxW to scaledH
+    val maxLongSide = 1920
+    val isLandscape = screenWidth >= screenHeight
+    val longSide = if (isLandscape) screenWidth else screenHeight
+    val shortSide = if (isLandscape) screenHeight else screenWidth
+
+    val (finalW, finalH) = if (longSide > maxLongSide && longSide > 0) {
+        val scale = maxLongSide.toFloat() / longSide.toFloat()
+        val scaledShort = (shortSide * scale).toInt()
+        if (isLandscape) maxLongSide to scaledShort else scaledShort to maxLongSide
     } else if (screenWidth > 0 && screenHeight > 0) {
         screenWidth to screenHeight
     } else {
-        960 to 540
+        1920 to 1080
     }
 
-    val evenW = finalW - (finalW % 2)
-    val evenH = finalH - (finalH % 2)
+    val evenW = (finalW - (finalW % 2)).coerceAtLeast(480)
+    val evenH = (finalH - (finalH % 2)).coerceAtLeast(480)
 
     return copy(
-        width = evenW.coerceAtLeast(640),
-        height = evenH.coerceAtLeast(360),
+        width = evenW,
+        height = evenH,
+        frameRate = 30,
+        videoBitrate = 8_000_000,
+        audioSampleRate = 48_000,
+        audioBitrate = 192_000,
     )
 }

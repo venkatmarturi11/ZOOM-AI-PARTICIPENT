@@ -1,5 +1,33 @@
 [
   {
+    "id": "rec_1788456581309",
+    "meetingId": "86452918571",
+    "botName": "rycb",
+    "fileName": "ZoomMeeting_86452918571_1788456580508.mp4",
+    "sizeBytes": 2769035,
+    "sizeMb": "2.64 MB",
+    "createdAt": "2026-09-03T17:29:41.309Z",
+    "status": "RECORDED 720P HD • LOCAL STORAGE",
+    "storageType": "Local Storage",
+    "videoUrl": "/recordings/ZoomMeeting_86452918571_1788456580508.mp4",
+    "videoSaved": true,
+    "processing": false
+  },
+  {
+    "id": "rec_1788455701885",
+    "meetingId": "86452918571",
+    "botName": "rycb",
+    "fileName": "ZoomMeeting_86452918571_1788455649290.mp4",
+    "sizeBytes": 0,
+    "sizeMb": "—",
+    "createdAt": "2026-09-03T17:15:01.885Z",
+    "status": "PROCESSING 720P — converting to .mp4...",
+    "storageType": "Local Storage",
+    "videoUrl": null,
+    "videoSaved": false,
+    "processing": true
+  },
+  {
     "id": "rec_1786283899144",
     "meetingId": "82705502661",
     "botName": "rycb",

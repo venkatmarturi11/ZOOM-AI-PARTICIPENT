@@ -1,1 +1,57 @@
-[]
+[
+  {
+    "id": "file_4781e3f7b9f6",
+    "fileName": "raw_audio_bot_1788453938357_376.webm",
+    "originalName": "raw_audio_bot_1788453938357_376.webm",
+    "filePath": "recordings\\raw_audio_bot_1788453938357_376.webm",
+    "fileSize": 16928,
+    "mimeType": "video/webm",
+    "category": "recording",
+    "createdAt": "2026-09-03T16:46:21.717Z",
+    "downloadsCount": 0
+  },
+  {
+    "id": "file_4e7770828162",
+    "fileName": "raw_audio_bot_1788455392252_491.webm",
+    "originalName": "raw_audio_bot_1788455392252_491.webm",
+    "filePath": "recordings\\raw_audio_bot_1788455392252_491.webm",
+    "fileSize": 43298,
+    "mimeType": "video/webm",
+    "category": "recording",
+    "createdAt": "2026-09-03T17:10:30.999Z",
+    "downloadsCount": 0
+  },
+  {
+    "id": "file_5ee139749e41",
+    "fileName": "ZoomMeeting_86452918571_1788455649290.mp4",
+    "originalName": "ZoomMeeting_86452918571_1788455649290.mp4",
+    "filePath": "recordings\\ZoomMeeting_86452918571_1788455649290.mp4",
+    "fileSize": 1048624,
+    "mimeType": "video/mp4",
+    "category": "recording",
+    "createdAt": "2026-09-03T17:15:08.621Z",
+    "downloadsCount": 0
+  },
+  {
+    "id": "file_3da31487b7de",
+    "fileName": "ZoomMeeting_86452918571_1788455649290_raw.webm",
+    "originalName": "ZoomMeeting_86452918571_1788455649290_raw.webm",
+    "filePath": "recordings\\ZoomMeeting_86452918571_1788455649290_raw.webm",
+    "fileSize": 6651202,
+    "mimeType": "video/webm",
+    "category": "recording",
+    "createdAt": "2026-09-03T17:15:01.880Z",
+    "downloadsCount": 0
+  },
+  {
+    "id": "file_7ae748054615",
+    "fileName": "ZoomMeeting_86452918571_1788456580508.mp4",
+    "originalName": "ZoomMeeting_86452918571_1788456580508.mp4",
+    "filePath": "recordings\\ZoomMeeting_86452918571_1788456580508.mp4",
+    "fileSize": 2769035,
+    "mimeType": "video/mp4",
+    "category": "recording",
+    "createdAt": "2026-09-03T17:29:41.403Z",
+    "downloadsCount": 0
+  }
+]
