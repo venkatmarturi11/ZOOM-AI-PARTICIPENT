@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  zoom-bot-studio:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zoom-ai-participant
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - DISPLAY=:99
+      - USE_NATIVE_ZOOM=true
+      - PULSE_SINK=speaker.monitor
+      - JWT_SECRET=zoom_secret_key_change_me
+    volumes:
+      # Mount recordings and persistent sessions to host
+      - ./backend/recordings:/app/recordings
+      - ./backend/data:/app/data
+      - ./backend/storage:/app/storage
+      - ./backend/sessions:/app/sessions
+    shm_size: '2gb'

@@ -1227,7 +1227,64 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
 
   let rawVideoSaved = false;
 
-  let rawAudioPath = (bot && bot.rawAudioPath) || path.join(RECORDINGS_DIR, `raw_audio_${bot ? bot.id : botId || 'session'}.webm`);
+  // If bot is running under Native Zoom runner (zoomrec architecture)
+  if (bot && bot.nativeProcess) {
+    console.log(`[Bot Engine] Stopping Native Zoom Bot process ${bot.id || botId}...`);
+    bot.status = 'STOPPED';
+    try {
+      bot.nativeProcess.kill('SIGINT');
+      await new Promise(res => {
+        const timer = setTimeout(res, 4000);
+        bot.nativeProcess.on('close', () => {
+          clearTimeout(timer);
+          res();
+        });
+      });
+    } catch (e) {}
+
+    const filePath = bot.targetFilePath || path.join(RECORDINGS_DIR, fileName);
+    const resolvedFileName = path.basename(filePath);
+    const videoExists = fs.existsSync(filePath) && fs.statSync(filePath).size > 1000;
+    const fileSize = videoExists ? fs.statSync(filePath).size : 0;
+
+    const entry = {
+      id: `rec_${Date.now()}`,
+      meetingId,
+      botName,
+      fileName: resolvedFileName,
+      sizeBytes: fileSize,
+      sizeMb: (fileSize / (1024 * 1024)).toFixed(2) + ' MB',
+      createdAt: new Date().toISOString(),
+      status: `RECORDED ${quality.toUpperCase()} HD • LOCAL STORAGE`,
+      storageType: 'Local Storage',
+      videoUrl: `/recordings/${resolvedFileName}`,
+      videoSaved: videoExists,
+      processing: false
+    };
+    recordingsMeta = recordingsMeta.filter(r => r.fileName !== resolvedFileName);
+    recordingsMeta.unshift(entry);
+    saveRecordingsMeta();
+
+    if (videoExists) {
+      backupRecordingToDriveIfConnected(resolvedFileName, filePath, bot.userId).catch(() => {});
+      if (bot.telegramChatId) {
+        notifyAndUploadRecording({ chatId: bot.telegramChatId, fileName: resolvedFileName, filePath, sizeBytes: fileSize }).catch(() => {});
+      }
+    }
+
+    activeBots.delete(bot.id || botId);
+
+    return {
+      success: true,
+      processing: false,
+      message: `Native Zoom bot stopped and recording saved.`,
+      fileName: resolvedFileName,
+      videoUrl: `/recordings/${resolvedFileName}`,
+      videoSaved: videoExists,
+      storageType: 'Local Storage'
+    };
+  }
+
   if (bot) {
     bot.status = 'STOPPED';
     try {
@@ -1309,14 +1366,11 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
     fileName,
     sizeBytes: 0,
     sizeMb: '—',
-    createdAt: new Date().toISOString(),
-    status: targetExt === 'webm'
-      ? `RECORDED ${quality.toUpperCase()} HD • LOCAL STORAGE`
-      : `PROCESSING ${quality.toUpperCase()} — converting to .${targetExt}...`,
+    status: `PROCESSING ${quality.toUpperCase()} — preparing .${targetExt}...`,
     storageType: 'Local Storage',
     videoUrl: null,
     videoSaved: false,
-    processing: targetExt !== 'webm'
+    processing: true
   };
   recordingsMeta = recordingsMeta.filter(r => r.fileName !== fileName);
   recordingsMeta.unshift(provisionalEntry);
@@ -1324,18 +1378,16 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
 
   finishRecordingProcessing({
     rawWebmPath, rawAudioPath, filePath, fileName, targetExt, quality, meetingId, botName,
-    processingId, botOwnerId, telegramChatId, alreadySavedAsWebm: targetExt === 'webm'
+    processingId, botOwnerId, telegramChatId, alreadySavedAsWebm: false
   }).catch(err => console.error('[Bot Engine] Background recording processing failed:', err));
 
   return {
     success: true,
-    processing: targetExt !== 'webm',
-    message: targetExt === 'webm'
-      ? `Bot stopped and ${quality} .webm video recording saved.`
-      : `Bot stopped. Recording captured — finishing ${quality} .${targetExt} conversion in background.`,
+    processing: true,
+    message: `Bot stopped. Recording captured — finishing ${quality} .${targetExt} conversion in background.`,
     fileName,
-    videoUrl: targetExt === 'webm' ? `/recordings/${fileName}` : null,
-    videoSaved: targetExt === 'webm',
+    videoUrl: null,
+    videoSaved: false,
     storageType: 'Local Storage'
   };
 }
@@ -1458,14 +1510,20 @@ function convertVideoWithFFmpeg(inputPath, audioPath, outputPath, format) {
     let args;
     if (hasAudio) {
       console.log(`[FFmpeg] Merging video with digital audio stream (${fs.statSync(audioPath).size} bytes audio) -> ${outputPath}`);
-      args = format === 'mkv'
-        ? ['-y', '-i', inputPath, '-i', audioPath, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', outputPath]
-        : ['-y', '-i', inputPath, '-i', audioPath, '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '0', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-shortest', outputPath];
+      if (format === 'webm') {
+        args = ['-y', '-i', inputPath, '-i', audioPath, '-c:v', 'copy', '-c:a', 'libopus', '-b:a', '128k', outputPath];
+      } else if (format === 'mkv') {
+        args = ['-y', '-i', inputPath, '-i', audioPath, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', outputPath];
+      } else {
+        args = ['-y', '-i', inputPath, '-i', audioPath, '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '0', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', outputPath];
+      }
     } else {
       console.log(`[FFmpeg] Encoding video with synthesized silent audio track -> ${outputPath}`);
-      args = format === 'mkv'
-        ? ['-y', '-i', inputPath, '-c', 'copy', outputPath]
-        : ['-y', '-i', inputPath, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '0', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-shortest', outputPath];
+      if (format === 'webm' || format === 'mkv') {
+        args = ['-y', '-i', inputPath, '-c:v', 'copy', outputPath];
+      } else {
+        args = ['-y', '-i', inputPath, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '0', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-shortest', outputPath];
+      }
     }
 
     let ff;
@@ -1885,6 +1943,69 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
 
     const dim = getDimensions(qualityStr, connectionType);
 
+    // Check if Native Zoom client is available (zoomrec architecture)
+    const hasNativeZoom = fs.existsSync('/usr/bin/zoom') || process.env.USE_NATIVE_ZOOM === 'true';
+    if (hasNativeZoom) {
+      console.log(`[Bot Container] Native Zoom desktop client detected! Spawning native_zoom_runner.py (zoomrec engine)...`);
+      const currentBot = activeBots.get(botId);
+      const meetingId = (currentBot && currentBot.meetingId) || '';
+      const targetFileName = `ZoomMeeting_${meetingId}_${Date.now()}.${formatStr || 'mp4'}`;
+      const targetFilePath = path.join(RECORDINGS_DIR, targetFileName);
+
+      const runnerScript = path.join(__dirname, 'native_zoom_runner.py');
+      const pythonBin = fs.existsSync('/usr/bin/python3') ? '/usr/bin/python3' : 'python';
+
+      const args = [
+        runnerScript,
+        '--meeting-id', meetingId,
+        '--password', pwd || '',
+        '--name', displayName || 'Zoom Bot',
+        '--url', standardUrl || directWcUrl || '',
+        '--output', targetFilePath,
+        '--resolution', `${dim.width}x${dim.height}`,
+        '--sink', process.env.PULSE_SINK || 'speaker.monitor',
+        '--display', process.env.DISPLAY || ':99'
+      ];
+
+      const nativeProc = spawn(pythonBin, args);
+      if (currentBot) {
+        currentBot.nativeProcess = nativeProc;
+        currentBot.targetFilePath = targetFilePath;
+        currentBot.targetFileName = targetFileName;
+        currentBot.engine = 'native';
+      }
+
+      nativeProc.stdout.on('data', (chunk) => {
+        const lines = chunk.toString().split('\n');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const evt = JSON.parse(line.trim());
+            if (evt.event === 'status' && currentBot) {
+              currentBot.status = evt.status;
+              currentBot.statusMessage = evt.message;
+              console.log(`[Native Bot ${botId}] Status: ${evt.status} - ${evt.message}`);
+            }
+          } catch (e) {
+            console.log(`[Native Bot ${botId}] ${line.trim()}`);
+          }
+        }
+      });
+
+      nativeProc.stderr.on('data', (errChunk) => {
+        console.warn(`[Native Bot ${botId} Error]`, errChunk.toString().trim());
+      });
+
+      nativeProc.on('close', (code) => {
+        console.log(`[Native Bot ${botId}] Native runner exited with code ${code}`);
+        if (currentBot && currentBot.status !== 'STOPPED') {
+          stopBotAndSaveRecording(botId).catch(() => {});
+        }
+      });
+
+      return;
+    }
+
     console.log(`[Bot Container] Launching Autonomous Chromium Browser for "${displayName}" [Resolution: ${dim.width}x${dim.height}]...`);
     
     let browser;
@@ -1984,7 +2105,6 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
           }
         }
       }
-    }
 
     if (!browser) {
       console.error(`[Bot ${botId}] Browser instance unavailable on server host. Last error: ${lastLaunchError}`);
@@ -2128,68 +2248,104 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
     const audioWriteStream = fs.createWriteStream(rawAudioPath, { flags: 'a' });
 
     await context.addInitScript(() => {
-      window.__setupAudioTap = function() {
-        if (window.__audioTapRunning) return;
+      const OrigAudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!OrigAudioContext) return;
+
+      // 1. Intercept AudioNode.prototype.connect so any audio routed to speakers is also tapped
+      const origConnect = AudioNode.prototype.connect;
+      AudioNode.prototype.connect = function(target, outputIndex, inputIndex) {
         try {
-          const AudioCtx = window.AudioContext || window.webkitAudioContext;
-          if (!AudioCtx) return;
-          const ctx = new AudioCtx();
-          const dest = ctx.createMediaStreamDestination();
-          window.__audioTapDest = dest;
-          window.__audioTapCtx = ctx;
-
-          // 1. Intercept all <audio> and <video> elements
-          const origPlay = HTMLMediaElement.prototype.play;
-          HTMLMediaElement.prototype.play = function() {
-            try {
-              if (!this.__tapped && dest && ctx) {
-                this.__tapped = true;
-                const src = ctx.createMediaElementSource(this);
-                src.connect(dest);
-                src.connect(ctx.destination);
-              }
-            } catch (err) {}
-            return origPlay.apply(this, arguments);
-          };
-
-          // 2. Intercept incoming WebRTC remote audio tracks
-          if (window.RTCPeerConnection) {
-            const origSetRemote = RTCPeerConnection.prototype.setRemoteDescription;
-            RTCPeerConnection.prototype.setRemoteDescription = function() {
-              this.addEventListener('track', (e) => {
-                try {
-                  if (e.track && e.track.kind === 'audio' && ctx && dest) {
-                    const stream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
-                    const src = ctx.createMediaStreamSource(stream);
-                    src.connect(dest);
-                  }
-                } catch (e) {}
-              });
-              return origSetRemote.apply(this, arguments);
-            };
-          }
-
-          // 3. Start MediaRecorder on the destination stream
-          if (dest && dest.stream) {
-            const rec = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' });
-            rec.ondataavailable = async (ev) => {
-              if (ev.data && ev.data.size > 0 && window.onZoomAudioChunk) {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  const b64 = (reader.result || '').split(',')[1];
-                  if (b64) window.onZoomAudioChunk(b64);
-                };
-                reader.readAsDataURL(ev.data);
-              }
-            };
-            rec.start(1000);
-            window.__audioTapRunning = true;
+          if (this.context && this.context.__tapDest && target) {
+            if (target === this.context.destination || target instanceof (window.AudioDestinationNode || Object)) {
+              origConnect.call(this, this.context.__tapDest, outputIndex || 0, 0);
+            }
           }
         } catch (e) {}
+        return origConnect.apply(this, arguments);
       };
 
-      window.addEventListener('DOMContentLoaded', () => window.__setupAudioTap());
-      setTimeout(() => window.__setupAudioTap(), 1000);
+      // 2. Attach MediaRecorder to any AudioContext Zoom creates
+      function attachTap(ctx) {
+        try {
+          if (ctx.__tapDest) return;
+          const dest = ctx.createMediaStreamDestination();
+          ctx.__tapDest = dest;
+
+          // Keep context running (resume if suspended by autoplay policy)
+          if (ctx.state === 'suspended') {
+            ctx.resume().catch(() => {});
+          }
+          ctx.onstatechange = () => {
+            if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+          };
+
+          const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+            ? 'audio/webm;codecs=opus'
+            : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+
+          const rec = mime ? new MediaRecorder(dest.stream, { mimeType: mime }) : new MediaRecorder(dest.stream);
+          ctx.__tapRecorder = rec;
+
+          rec.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size > 0 && window.onZoomAudioChunk) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const b64 = (reader.result || '').split(',')[1];
+                if (b64 && window.onZoomAudioChunk) {
+                  window.onZoomAudioChunk(b64);
+                }
+              };
+              reader.readAsDataURL(ev.data);
+            }
+          };
+
+          rec.start(1000);
+        } catch (e) {}
+      }
+
+      // 3. Wrap window.AudioContext
+      window.AudioContext = class extends OrigAudioContext {
+        constructor(...args) {
+          super(...args);
+          attachTap(this);
+        }
+      };
+      window.webkitAudioContext = window.AudioContext;
+
+      // 4. Intercept all <audio> and <video> elements
+      const origPlay = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function() {
+        try {
+          if (!this.__tapped) {
+            this.__tapped = true;
+            const tempCtx = new OrigAudioContext();
+            attachTap(tempCtx);
+            const src = tempCtx.createMediaElementSource(this);
+            src.connect(tempCtx.__tapDest);
+            src.connect(tempCtx.destination);
+          }
+        } catch (err) {}
+        return origPlay.apply(this, arguments);
+      };
+
+      // 5. Intercept WebRTC audio tracks
+      if (window.RTCPeerConnection) {
+        const origSetRemote = RTCPeerConnection.prototype.setRemoteDescription;
+        RTCPeerConnection.prototype.setRemoteDescription = function() {
+          this.addEventListener('track', (e) => {
+            try {
+              if (e.track && e.track.kind === 'audio') {
+                const tempCtx = new OrigAudioContext();
+                attachTap(tempCtx);
+                const stream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+                const src = tempCtx.createMediaStreamSource(stream);
+                src.connect(tempCtx.__tapDest);
+              }
+            } catch (e) {}
+          });
+          return origSetRemote.apply(this, arguments);
+        };
+      }
     });
 
     const page = await context.newPage();
@@ -2689,6 +2845,18 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
 
         // STEP 6: Auto-Dismiss Popups, Toasts, Recording Consent ("Got It"), and Computer Audio
         await page.evaluate(() => {
+          // Auto-dismiss any active modal / alert dialog with OK / Got it
+          const modals = Array.from(document.querySelectorAll('.zm-modal, [role="dialog"], .modal-dialog, .zm-message-box'));
+          for (const m of modals) {
+            const okBtn = Array.from(m.querySelectorAll('button, a, div[role="button"]')).find(b => {
+              const t = (b.textContent || b.value || '').trim().toLowerCase();
+              return t === 'ok' || t === 'got it' || t === 'continue' || t === 'close' || t === 'i agree' || t === 'dismiss';
+            });
+            if (okBtn) {
+              try { okBtn.click(); } catch(e) {}
+            }
+          }
+
           const all = Array.from(document.querySelectorAll('button, a.btn, div[role="button"], span.btn'));
           all.forEach(b => {
             const txt = (b.textContent || b.value || '').trim().toLowerCase();
@@ -2700,7 +2868,10 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
             ) {
               try { b.click(); } catch(e) {}
             }
-            if (txt.includes('computer audio') || txt.includes('join audio')) {
+
+            // Only click initial "Join Audio by Computer" connect button once; do NOT click the bottom toolbar audio toggle
+            if (!window.__hasJoinedAudio && (txt === 'join audio by computer' || (txt.includes('computer audio') && !b.closest('.footer, .footer__controls, footer')))) {
+              window.__hasJoinedAudio = true;
               try { b.click(); } catch(e) {}
             }
           });
