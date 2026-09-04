@@ -76,60 +76,91 @@ jobs:
           RECORD_DURATION: ${{ github.event.inputs.duration_minutes }}
           PERSIST_DIR: ${{ github.workspace }}/backend
         run: |
-          # 1. Start backend server in background
-          node src/index.js &
+          # 1. Start backend server in background with logging
+          node src/index.js > server.log 2>&1 &
           SERVER_PID=$!
-          echo "Server started with PID $SERVER_PID, waiting for it to be ready..."
-          sleep 4
+          echo "Server started with PID $SERVER_PID. Waiting for it to be ready..."
 
-          # 2. Check health
-          curl -sf http://localhost:3000/api/health || (echo "Health check failed" && exit 1)
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "✅ Zoom Bot Server is up and healthy!"
+              break
+            fi
+            sleep 1
+          done
 
-          # 3. Trigger meeting recording via API
-          echo "Triggering recording for $MEETING_URL with name '$DISPLAY_NAME'..."
-          RESPONSE=$(curl -s -X POST http://localhost:3000/api/bot/record \
-            -H "Content-Type: application/json" \
-            -d "{\"meetingUrl\":\"$MEETING_URL\",\"passcode\":\"$PASSCODE\",\"displayName\":\"$DISPLAY_NAME\"}")
-
-          echo "Response: $RESPONSE"
-          BOT_ID=$(echo "$RESPONSE" | jq -r '.meetingId')
-          echo "Active Bot ID: $BOT_ID"
-
-          if [ "$BOT_ID" == "null" ] || [ -z "$BOT_ID" ]; then
-            echo "Error: Failed to launch bot"
+          if ! curl -sf http://localhost:3000/api/health; then
+            echo "❌ Health check failed. Server output:"
+            cat server.log
             exit 1
           fi
 
-          # 4. Wait for specified recording duration (convert minutes to seconds)
-          DURATION_SECS=$((RECORD_DURATION * 60))
-          echo "Recording active in cloud... Waiting for $DURATION_SECS seconds ($RECORD_DURATION minutes)..."
+          # 2. Trigger meeting recording via API with safe JSON payload
+          echo "Triggering recording for $MEETING_URL with name '$DISPLAY_NAME'..."
+          PAYLOAD=$(jq -n \
+            --arg url "$MEETING_URL" \
+            --arg pwd "$PASSCODE" \
+            --arg name "$DISPLAY_NAME" \
+            '{meetingUrl: $url, passcode: $pwd, displayName: $name}')
 
-          # Monitor loop checking if bot is still alive
+          RESPONSE=$(curl -s -X POST http://localhost:3000/api/bot/record \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+
+          echo "Response: $RESPONSE"
+          BOT_ID=$(echo "$RESPONSE" | jq -r '.meetingId // empty')
+          echo "Active Bot ID: $BOT_ID"
+
+          if [ -z "$BOT_ID" ] || [ "$BOT_ID" == "null" ]; then
+            echo "❌ Error: Failed to launch bot. Response was:"
+            echo "$RESPONSE"
+            cat server.log
+            exit 1
+          fi
+
+          # 3. Wait for specified recording duration (convert minutes to seconds)
+          DURATION_SECS=$((RECORD_DURATION * 60))
+          echo "🎥 Recording active in cloud... Waiting for $DURATION_SECS seconds ($RECORD_DURATION minutes)..."
+
+          # Monitor loop checking if bot is still alive and capturing audio
           ELAPSED=0
           while [ $ELAPSED -lt $DURATION_SECS ]; do
             sleep 15
             ELAPSED=$((ELAPSED + 15))
-            
+
             STATUS_RESP=$(curl -s "http://localhost:3000/api/live/status" || echo "{}")
             IS_ACTIVE=$(echo "$STATUS_RESP" | jq -r '.active // false')
-            
+            CURR_STATUS=$(echo "$STATUS_RESP" | jq -r '.status // "UNKNOWN"')
+            AUDIO_BYTES=$(echo "$STATUS_RESP" | jq -r '.audioBytes // 0')
+
             if [ "$IS_ACTIVE" == "false" ] && [ $ELAPSED -gt 120 ]; then
-              echo "Meeting ended by host or bot finished early at $ELAPSED seconds."
+              echo "Meeting ended by host or bot finished at $ELAPSED seconds."
               break
             fi
 
             if [ $((ELAPSED % 60)) -eq 0 ]; then
-              echo "Recorded $((ELAPSED / 60)) / $RECORD_DURATION minutes..."
+              echo "Recorded $((ELAPSED / 60)) / $RECORD_DURATION mins | Status: $CURR_STATUS | Audio: $AUDIO_BYTES bytes"
             fi
           done
 
-          # 5. Stop bot gracefully to finalize video and audio muxing
+          # 4. Stop bot gracefully and synchronously finalize MP4 with digital audio
           echo "Stopping bot and finalizing MP4 with digital audio..."
-          curl -s -X POST http://localhost:3000/api/bot/stop \
+          STOP_RESP=$(curl -s -X POST http://localhost:3000/api/bot/stop \
             -H "Content-Type: application/json" \
-            -d "{\"botId\":\"$BOT_ID\"}" || true
+            -d "{\"botId\":\"$BOT_ID\",\"sync\":true}" || true)
+          echo "Stop Response: $STOP_RESP"
 
-          sleep 5
+          # Verify final MP4 artifact exists on disk
+          echo "Verifying MP4 file on disk..."
+          for i in $(seq 1 30); do
+            MP4_COUNT=$(find recordings/ -name "*.mp4" -size +10k 2>/dev/null | wc -l)
+            if [ "$MP4_COUNT" -gt 0 ]; then
+              echo "✅ Confirmed MP4 recording ready on disk:"
+              ls -lh recordings/*.mp4
+              break
+            fi
+            sleep 2
+          done
           echo "Finished recording session."
 
       - name: Upload Meeting Recording MP4 to GitHub

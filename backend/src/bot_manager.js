@@ -1229,6 +1229,7 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
 
   const rawWebmName = `ZoomMeeting_${meetingId}_${Date.now()}_raw.webm`;
   const rawWebmPath = path.join(RECORDINGS_DIR, rawWebmName);
+  const rawAudioPath = (bot && bot.rawAudioPath) ? bot.rawAudioPath : path.join(RECORDINGS_DIR, `raw_audio_${bot ? bot.id : botId}.webm`);
   let fileName = `ZoomMeeting_${meetingId}_${Date.now()}.${targetExt}`;
   let filePath = path.join(RECORDINGS_DIR, fileName);
 
@@ -1296,7 +1297,14 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
     bot.status = 'STOPPED';
     try {
       if (bot.audioWriteStream) {
-        try { bot.audioWriteStream.end(); } catch (e) {}
+        try {
+          if (!bot.audioWriteStream.writableEnded) {
+            await new Promise(resolve => {
+              bot.audioWriteStream.end(() => resolve());
+              setTimeout(resolve, 1000);
+            });
+          }
+        } catch (e) {}
       }
       if (bot.stopLoop) {
         bot.stopLoop();
@@ -1383,10 +1391,24 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
   recordingsMeta.unshift(provisionalEntry);
   saveRecordingsMeta();
 
-  finishRecordingProcessing({
+  const finishPromise = finishRecordingProcessing({
     rawWebmPath, rawAudioPath, filePath, fileName, targetExt, quality, meetingId, botName,
     processingId, botOwnerId, telegramChatId, alreadySavedAsWebm: false
   }).catch(err => console.error('[Bot Engine] Background recording processing failed:', err));
+
+  if (formatOverride === '__WAIT_FINISH__' || (botId && typeof botId === 'object' && botId.sync)) {
+    await finishPromise;
+    const finalEntry = recordingsMeta.find(r => r.id === processingId || r.fileName === fileName);
+    return {
+      success: true,
+      processing: false,
+      message: `Bot stopped and recording finalized: ${fileName}`,
+      fileName,
+      videoUrl: `/recordings/${fileName}`,
+      videoSaved: finalEntry ? finalEntry.videoSaved : fs.existsSync(filePath),
+      storageType: 'Local Storage'
+    };
+  }
 
   return {
     success: true,
@@ -1405,7 +1427,8 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
  */
 app.post('/api/bot/stop', async (req, res) => {
   const botTarget = req.body.botId || req.body.meetingId;
-  const result = await stopBotAndSaveRecording(botTarget);
+  const waitForFinish = req.body.sync === true || req.body.wait === true;
+  const result = await stopBotAndSaveRecording(botTarget, waitForFinish ? '__WAIT_FINISH__' : null);
   if (!result.success) {
     return res.status(500).json(result);
   }
@@ -2259,95 +2282,117 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
       const OrigAudioContext = window.AudioContext || window.webkitAudioContext;
       if (!OrigAudioContext) return;
 
-      // 1. Intercept AudioNode.prototype.connect so any audio routed to speakers is also tapped
+      // Master audio mixer to capture and merge all audio streams into a single clean MediaRecorder stream
+      function getMasterAudio() {
+        if (!window.__zoomMasterAudio) {
+          try {
+            const masterCtx = new OrigAudioContext();
+            const masterDest = masterCtx.createMediaStreamDestination();
+
+            if (masterCtx.state === 'suspended') {
+              masterCtx.resume().catch(() => {});
+            }
+            masterCtx.onstatechange = () => {
+              if (masterCtx.state === 'suspended') masterCtx.resume().catch(() => {});
+            };
+
+            const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+              ? 'audio/webm;codecs=opus'
+              : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+
+            const rec = mime ? new MediaRecorder(masterDest.stream, { mimeType: mime }) : new MediaRecorder(masterDest.stream);
+
+            rec.ondataavailable = (ev) => {
+              if (ev.data && ev.data.size > 0 && window.onZoomAudioChunk) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const b64 = (reader.result || '').split(',')[1];
+                  if (b64 && window.onZoomAudioChunk) {
+                    window.onZoomAudioChunk(b64);
+                  }
+                };
+                reader.readAsDataURL(ev.data);
+              }
+            };
+
+            rec.start(1000);
+            window.__zoomMasterAudio = { masterCtx, masterDest, rec };
+          } catch (e) {}
+        }
+        return window.__zoomMasterAudio;
+      }
+
+      // Initialize master audio recorder immediately
+      getMasterAudio();
+
+      // 1. Intercept AudioNode.prototype.connect so any audio routed to speakers is also tapped into master
       const origConnect = AudioNode.prototype.connect;
       AudioNode.prototype.connect = function(target, outputIndex, inputIndex) {
         try {
-          if (this.context && this.context.__tapDest && target) {
-            if (target === this.context.destination || target instanceof (window.AudioDestinationNode || Object)) {
-              origConnect.call(this, this.context.__tapDest, outputIndex || 0, 0);
+          const master = getMasterAudio();
+          if (master && target && (target === this.context.destination || target instanceof (window.AudioDestinationNode || Object))) {
+            if (!this.context.__tapStreamDest) {
+              const subDest = this.context.createMediaStreamDestination();
+              this.context.__tapStreamDest = subDest;
+              origConnect.call(this, subDest, outputIndex || 0, 0);
+              try {
+                const streamSource = master.masterCtx.createMediaStreamSource(subDest.stream);
+                streamSource.connect(master.masterDest);
+              } catch (linkErr) {}
+            } else {
+              origConnect.call(this, this.context.__tapStreamDest, outputIndex || 0, 0);
             }
           }
         } catch (e) {}
         return origConnect.apply(this, arguments);
       };
 
-      // 2. Attach MediaRecorder to any AudioContext Zoom creates
-      function attachTap(ctx) {
-        try {
-          if (ctx.__tapDest) return;
-          const dest = ctx.createMediaStreamDestination();
-          ctx.__tapDest = dest;
-
-          // Keep context running (resume if suspended by autoplay policy)
-          if (ctx.state === 'suspended') {
-            ctx.resume().catch(() => {});
-          }
-          ctx.onstatechange = () => {
-            if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-          };
-
-          const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-            ? 'audio/webm;codecs=opus'
-            : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
-
-          const rec = mime ? new MediaRecorder(dest.stream, { mimeType: mime }) : new MediaRecorder(dest.stream);
-          ctx.__tapRecorder = rec;
-
-          rec.ondataavailable = (ev) => {
-            if (ev.data && ev.data.size > 0 && window.onZoomAudioChunk) {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const b64 = (reader.result || '').split(',')[1];
-                if (b64 && window.onZoomAudioChunk) {
-                  window.onZoomAudioChunk(b64);
-                }
-              };
-              reader.readAsDataURL(ev.data);
-            }
-          };
-
-          rec.start(1000);
-        } catch (e) {}
-      }
-
-      // 3. Wrap window.AudioContext
+      // 2. Wrap window.AudioContext to ensure all instances auto-resume and are tapped
       window.AudioContext = class extends OrigAudioContext {
         constructor(...args) {
           super(...args);
-          attachTap(this);
+          try {
+            if (this.state === 'suspended') {
+              this.resume().catch(() => {});
+            }
+            this.onstatechange = () => {
+              if (this.state === 'suspended') this.resume().catch(() => {});
+            };
+          } catch (e) {}
         }
       };
       window.webkitAudioContext = window.AudioContext;
 
-      // 4. Intercept all <audio> and <video> elements
+      // 3. Intercept all <audio> and <video> elements
       const origPlay = HTMLMediaElement.prototype.play;
       HTMLMediaElement.prototype.play = function() {
         try {
           if (!this.__tapped) {
             this.__tapped = true;
-            const tempCtx = new OrigAudioContext();
-            attachTap(tempCtx);
-            const src = tempCtx.createMediaElementSource(this);
-            src.connect(tempCtx.__tapDest);
-            src.connect(tempCtx.destination);
+            const master = getMasterAudio();
+            if (master) {
+              const src = master.masterCtx.createMediaElementSource(this);
+              src.connect(master.masterDest);
+              src.connect(master.masterCtx.destination);
+            }
           }
         } catch (err) {}
         return origPlay.apply(this, arguments);
       };
 
-      // 5. Intercept WebRTC audio tracks
+      // 4. Intercept WebRTC audio tracks
       if (window.RTCPeerConnection) {
         const origSetRemote = RTCPeerConnection.prototype.setRemoteDescription;
         RTCPeerConnection.prototype.setRemoteDescription = function() {
           this.addEventListener('track', (e) => {
             try {
               if (e.track && e.track.kind === 'audio') {
-                const tempCtx = new OrigAudioContext();
-                attachTap(tempCtx);
-                const stream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
-                const src = tempCtx.createMediaStreamSource(stream);
-                src.connect(tempCtx.__tapDest);
+                const master = getMasterAudio();
+                if (master) {
+                  const stream = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+                  const src = master.masterCtx.createMediaStreamSource(stream);
+                  src.connect(master.masterDest);
+                }
               }
             } catch (e) {}
           });
@@ -2853,15 +2898,43 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
 
         // STEP 6: Auto-Dismiss Popups, Toasts, Recording Consent ("Got It"), and Computer Audio
         await page.evaluate(() => {
-          // Auto-dismiss any active modal / alert dialog with OK / Got it
-          const modals = Array.from(document.querySelectorAll('.zm-modal, [role="dialog"], .modal-dialog, .zm-message-box'));
+          // Auto-dismiss any active modal / alert dialog with OK / Got it / Stay in Meeting
+          const modals = Array.from(document.querySelectorAll('.zm-modal, [role="dialog"], .modal-dialog, .zm-message-box, .recording-disclaimer'));
           for (const m of modals) {
-            const okBtn = Array.from(m.querySelectorAll('button, a, div[role="button"]')).find(b => {
+            const okBtn = Array.from(m.querySelectorAll('button, a, div[role="button"], span.btn')).find(b => {
               const t = (b.textContent || b.value || '').trim().toLowerCase();
-              return t === 'ok' || t === 'got it' || t === 'continue' || t === 'close' || t === 'i agree' || t === 'dismiss';
+              return t === 'ok' || t === 'got it' || t === 'continue' || t === 'close' || t === 'i agree' || t === 'stay in meeting' || t === 'dismiss' || t === 'accept';
             });
             if (okBtn) {
               try { okBtn.click(); } catch(e) {}
+            }
+          }
+
+          // Handle "Join Audio by Computer" modal with robust selectors and debounce
+          const audioBtn = Array.from(document.querySelectorAll('button, a.btn, div[role="button"], span.btn')).find(b => {
+            const txt = (b.textContent || b.value || '').trim().toLowerCase();
+            const id = (b.id || '').toLowerCase();
+            const cls = (b.className || '').toLowerCase();
+            const isToolbar = !!b.closest('.footer, .footer__controls, footer, #wc-footer');
+            if (isToolbar) return false;
+            return id === 'join-audio-by-computer' ||
+                   txt === 'join audio by computer' ||
+                   txt === 'join computer audio' ||
+                   txt === 'join with computer audio' ||
+                   (txt.includes('computer audio') && !isToolbar) ||
+                   cls.includes('join-audio-by-voip');
+          });
+
+          if (audioBtn) {
+            const now = Date.now();
+            if (!window._lastAudioJoinClick || (now - window._lastAudioJoinClick > 2500)) {
+              window._lastAudioJoinClick = now;
+              // Check "Automatically join audio by computer" checkbox if present
+              const autoJoinChk = document.querySelector('input[type="checkbox"][aria-label*="Automatically join" i], input[type="checkbox"][name*="autoJoin" i]');
+              if (autoJoinChk && !autoJoinChk.checked) {
+                try { autoJoinChk.click(); } catch(e) {}
+              }
+              try { audioBtn.click(); } catch(e) {}
             }
           }
 
@@ -2871,19 +2944,26 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
             const aria = (b.getAttribute('aria-label') || '').toLowerCase();
             if (
               txt === 'got it' || txt === 'ok' || txt === 'i agree' || txt === 'accept' ||
-              txt === 'accept all' || txt === 'continue' || txt === 'close' ||
+              txt === 'accept all' || txt === 'continue' || txt === 'close' || txt === 'stay in meeting' ||
               aria.includes('close') || aria.includes('dismiss') || b.id === 'wc_agree1'
             ) {
               try { b.click(); } catch(e) {}
             }
-
-            // Only click initial "Join Audio by Computer" connect button once; do NOT click the bottom toolbar audio toggle
-            if (!window.__hasJoinedAudio && (txt === 'join audio by computer' || (txt.includes('computer audio') && !b.closest('.footer, .footer__controls, footer')))) {
-              window.__hasJoinedAudio = true;
-              try { b.click(); } catch(e) {}
-            }
           });
         }).catch(() => {});
+
+        // Direct Playwright locator click fallback for Join Audio and Recording Disclaimers
+        try {
+          const audioLoc = page.locator('#join-audio-by-computer, button:has-text("Join Audio by Computer"), button:has-text("Join with Computer Audio"), button.join-audio-by-voip').first();
+          if (await audioLoc.isVisible({ timeout: 100 }).catch(() => false)) {
+            await audioLoc.click({ force: true }).catch(() => {});
+          }
+
+          const gotItLoc = page.locator('button:has-text("Got It"), button:has-text("Stay in Meeting"), button:has-text("I Agree")').first();
+          if (await gotItLoc.isVisible({ timeout: 100 }).catch(() => false)) {
+            await gotItLoc.click({ force: true }).catch(() => {});
+          }
+        } catch (e) {}
 
         // STEP 8: Inject notification/banner cleanup CSS (only once, and safe selectors)
         if (isOnWebClient) {
@@ -3250,6 +3330,46 @@ app.get('/api/bot/test-browser', async (req, res) => {
   }
 
   res.json(diag);
+});
+
+// GET /api/live/status — Real-time bot status and audio capture metrics for CI/CD runners and monitors
+app.get('/api/live/status', (req, res) => {
+  if (activeBots.size === 0) {
+    return res.json({
+      active: false,
+      status: 'NO_ACTIVE_BOT',
+      meetingId: null,
+      botId: null,
+      recordingsCount: recordingsMeta.length
+    });
+  }
+
+  const [botId, bot] = [...activeBots.entries()][0];
+  let currentUrl = '';
+  try {
+    if (bot.page && !bot.page.isClosed()) {
+      currentUrl = bot.page.url();
+    }
+  } catch (e) {}
+
+  const hasAudio = !!(bot.rawAudioPath && fs.existsSync(bot.rawAudioPath) && fs.statSync(bot.rawAudioPath).size > 0);
+  const audioBytes = hasAudio ? fs.statSync(bot.rawAudioPath).size : 0;
+
+  res.json({
+    active: true,
+    botId,
+    status: bot.status || 'JOINING',
+    statusMessage: bot.statusMessage || null,
+    meetingId: bot.meetingId,
+    botName: bot.botName,
+    quality: bot.quality || '1080p',
+    format: bot.format || 'mp4',
+    startTime: bot.startTime,
+    currentUrl,
+    hasAudio,
+    audioBytes,
+    isWebinar: bot.isWebinar || false
+  });
 });
 
 // GET /api/bot/active — Returns active status for Android client HUD
