@@ -1844,3 +1844,111 @@ body {
   background: #ef4444;
   border-color: #ef4444;
 }
+
+/* ==========================================================================
+   From Uiverse.io by adamgiebl - Online Action Buttons
+   ========================================================================== */
+.stop-bot-action-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.stop-bot-action-box button,
+button.btn-online,
+.btn-online {
+  font-family: inherit;
+  font-size: 18px;
+  background: royalblue;
+  color: white;
+  padding: 0.7em 1.2em;
+  padding-left: 0.9em;
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  border-radius: 16px;
+  overflow: hidden;
+  transition: all 0.2s;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(65, 105, 225, 0.35);
+  font-weight: 600;
+  user-select: none;
+  text-decoration: none;
+}
+
+.stop-bot-action-box button.btn-danger-online,
+button.btn-online.btn-danger-online,
+.btn-online.btn-danger-online {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.35);
+}
+
+.stop-bot-action-box button span,
+button.btn-online span,
+.btn-online span {
+  display: block;
+  margin-left: 0.4em;
+  transition: all 0.3s ease-in-out;
+  white-space: nowrap;
+}
+
+.stop-bot-action-box button svg,
+button.btn-online svg,
+.btn-online svg {
+  display: block;
+  transform-origin: center center;
+  transition: transform 0.3s ease-in-out;
+  flex-shrink: 0;
+}
+
+.stop-bot-action-box button:hover,
+button.btn-online:hover,
+.btn-online:hover {
+  filter: brightness(1.08);
+}
+
+.stop-bot-action-box button:hover .svg-wrapper,
+button.btn-online:hover .svg-wrapper,
+.btn-online:hover .svg-wrapper {
+  animation: fly-1 0.6s ease-in-out infinite alternate;
+}
+
+.stop-bot-action-box button:hover svg,
+button.btn-online:hover svg,
+.btn-online:hover svg {
+  transform: translateX(1.2em) rotate(45deg) scale(1.1);
+}
+
+.stop-bot-action-box button:hover span,
+button.btn-online:hover span,
+.btn-online:hover span {
+  transform: translateX(7em);
+  opacity: 0;
+}
+
+.stop-bot-action-box button:active,
+button.btn-online:active,
+.btn-online:active {
+  transform: scale(0.95);
+}
+
+.stop-bot-action-box button:disabled,
+button.btn-online:disabled,
+.btn-online:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  filter: grayscale(0.4);
+}
+
+@keyframes fly-1 {
+  from {
+    transform: translateY(0.1em);
+  }
+
+  to {
+    transform: translateY(-0.1em);
+  }
+}
