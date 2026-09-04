@@ -1140,7 +1140,7 @@ app.post('/api/bot/interact', authenticate, async (req, res) => {
  * POST /api/bot/deploy
  */
 app.post('/api/bot/deploy', authenticate, async (req, res) => {
-  const { meetingUrl, passcode, botName, videoQuality, videoFormat, connectionType, userId, durationMinutes, telegramChatId } = req.body;
+  const { meetingUrl, passcode, botName, videoQuality, videoFormat, connectionType, userId, durationMinutes, telegramChatId, websocketEndpoint } = req.body;
 
   if (!meetingUrl) {
     return res.status(400).json({ success: false, message: 'Meeting URL or ID is required', error: 'Meeting URL or ID is required' });
@@ -1156,9 +1156,13 @@ app.post('/api/bot/deploy', authenticate, async (req, res) => {
   const targetQuality = videoQuality || 'auto';
   const targetFormat = (videoFormat || 'mp4').toLowerCase();
   const connType = connectionType || 'wifi';
+  const wsEndpoint = websocketEndpoint || process.env.WEBSOCKET_ENDPOINT || null;
 
   try {
     console.log(`[Bot Engine] Deploying Autonomous Bot "${displayName}" (ID: ${botId}) [Type: ${isWebinar ? 'WEBINAR' : 'MEETING'}, ID: ${meetingId}, Conn: ${connType}] to Zoom...`);
+    if (wsEndpoint) {
+      console.log(`[Bot Engine] Live WebSocket Streaming enabled -> ${wsEndpoint}`);
+    }
 
     const targetDurationMins = (durationMinutes && !isNaN(durationMinutes) && Number(durationMinutes) > 0) ? Number(durationMinutes) : 120;
     const exitMs = Math.round(targetDurationMins * 60 * 1000);
@@ -1172,6 +1176,7 @@ app.post('/api/bot/deploy', authenticate, async (req, res) => {
       quality: targetQuality,
       format: targetFormat,
       connectionType: connType,
+      websocketEndpoint: wsEndpoint,
       isWebinar,
       standardUrl,
       directWcUrl,
@@ -1183,7 +1188,7 @@ app.post('/api/bot/deploy', authenticate, async (req, res) => {
     });
 
     setTimeout(() => {
-      launchZoomBotContainer(botId, standardUrl, directWcUrl, displayName, pwd, targetQuality, targetFormat, connType);
+      launchZoomBotContainer(botId, standardUrl, directWcUrl, displayName, pwd, targetQuality, targetFormat, connType, wsEndpoint);
     }, 50);
 
     console.log(`[Bot Engine] Setting 2-hour long-duration session timer for bot ${botId} (${targetDurationMins} minutes)...`);
@@ -1337,6 +1342,19 @@ async function stopBotAndSaveRecording(botId, formatOverride = null) {
       } else {
         if (bot.context) await bot.context.close().catch(() => {});
         if (bot.browser) await bot.browser.close().catch(() => {});
+      }
+
+      if (bot.wsStream) {
+        try {
+          bot.wsStream.send({
+            type: 'session_ended',
+            meetingId,
+            botName,
+            fileName,
+            timestamp: new Date().toISOString()
+          });
+          bot.wsStream.close();
+        } catch (e) {}
       }
     } catch (e) {
       console.error('[Bot Engine] Error closing recording video:', e);
@@ -1957,7 +1975,101 @@ async function handleZoomSignInStep(page, botId, directWcUrl, userSessionPath, c
   }
 }
 
-async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayName, pwd, qualityStr, formatStr, connectionType = 'wifi') {
+/**
+ * Real-Time WebSocket Streaming Client
+ * Connects to external WebSocket servers (e.g. wss://...) to stream meeting audio, video frames, and status.
+ */
+function createBotWebSocketClient(endpointUrl, botId, meetingId, botName = 'ZoomBot') {
+  if (!endpointUrl || (!endpointUrl.startsWith('ws://') && !endpointUrl.startsWith('wss://'))) {
+    return null;
+  }
+
+  let ws = null;
+  let isOpen = false;
+  let isClosed = false;
+  const queue = [];
+
+  function connect() {
+    if (isClosed) return;
+    try {
+      const WS = typeof WebSocket !== 'undefined' ? WebSocket : null;
+      if (!WS) {
+        console.warn(`[WebSocket Stream ${botId}] Native WebSocket constructor unavailable on runtime.`);
+        return;
+      }
+
+      console.log(`[WebSocket Stream ${botId}] Connecting live stream to ${endpointUrl}...`);
+      ws = new WS(endpointUrl);
+
+      ws.onopen = () => {
+        isOpen = true;
+        console.log(`[WebSocket Stream ${botId}] ✅ Live WebSocket connected to ${endpointUrl}! Streaming audio/video...`);
+        send({
+          type: 'handshake',
+          botId,
+          meetingId,
+          botName,
+          timestamp: new Date().toISOString()
+        });
+
+        while (queue.length > 0 && isOpen) {
+          const item = queue.shift();
+          try { ws.send(typeof item === 'string' ? item : JSON.stringify(item)); } catch (e) {}
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg && msg.action === 'stop') {
+            console.log(`[WebSocket Stream ${botId}] Remote stop command received via WebSocket!`);
+            stopBotAndSaveRecording(botId, 'mp4').catch(() => {});
+          }
+        } catch (e) {}
+      };
+
+      ws.onerror = (err) => {
+        console.warn(`[WebSocket Stream ${botId}] WebSocket notice:`, (err && err.message) || 'connection event');
+      };
+
+      ws.onclose = () => {
+        isOpen = false;
+        if (!isClosed) {
+          console.log(`[WebSocket Stream ${botId}] Connection closed, auto-reconnecting in 3s...`);
+          setTimeout(connect, 3000);
+        }
+      };
+    } catch (err) {
+      console.error(`[WebSocket Stream ${botId}] Error creating WebSocket client:`, err.message);
+    }
+  }
+
+  function send(payload) {
+    const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    if (ws && isOpen && ws.readyState === 1) {
+      try {
+        ws.send(data);
+      } catch (e) {
+        if (queue.length < 200) queue.push(payload);
+      }
+    } else {
+      if (queue.length < 200) queue.push(payload);
+    }
+  }
+
+  function close() {
+    isClosed = true;
+    isOpen = false;
+    if (ws) {
+      try { ws.close(); } catch (e) {}
+    }
+  }
+
+  connect();
+  return { send, close, get isOpen() { return isOpen; } };
+}
+
+async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayName, pwd, qualityStr, formatStr, connectionType = 'wifi', websocketEndpoint = null) {
   try {
     // Clean up any old active bot instances before spawning a new browser to prevent RAM accumulation
     for (const [existingId, existingBot] of activeBots) {
@@ -1969,6 +2081,12 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
         } catch (e) {}
         activeBots.delete(existingId);
       }
+    }
+
+    const currentBotObj = activeBots.get(botId);
+    const effectiveWsEndpoint = websocketEndpoint || (currentBotObj && currentBotObj.websocketEndpoint) || process.env.WEBSOCKET_ENDPOINT || null;
+    if (effectiveWsEndpoint && currentBotObj) {
+      currentBotObj.wsStream = createBotWebSocketClient(effectiveWsEndpoint, botId, currentBotObj.meetingId, displayName);
     }
 
     const dim = getDimensions(qualityStr, connectionType);
@@ -2148,7 +2266,6 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
       return;
     }
 
-    const currentBotObj = activeBots.get(botId);
     let botUserId = (currentBotObj && currentBotObj.userId) || 'default_user';
     let userSessionPath = getZoomSessionPath(botUserId);
     let hasPersistentSession = fs.existsSync(userSessionPath);
@@ -2408,6 +2525,15 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
       try {
         if (base64Chunk && audioWriteStream && !audioWriteStream.destroyed) {
           audioWriteStream.write(Buffer.from(base64Chunk, 'base64'));
+        }
+        const currentBot = activeBots.get(botId);
+        if (currentBot && currentBot.wsStream) {
+          currentBot.wsStream.send({
+            type: 'audio',
+            format: 'webm/opus',
+            chunk: base64Chunk,
+            timestamp: Date.now()
+          });
         }
       } catch (e) {}
     }).catch(() => {});
@@ -2689,6 +2815,15 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
             botRef._lastStateChangeTime = Date.now();
             botRef.status = nextStatus;
             console.log(`[Bot ${botId}] Join Engine State Machine -> ${nextStatus} (DOM-verified)`);
+            if (botRef.wsStream) {
+              botRef.wsStream.send({
+                type: 'status',
+                status: nextStatus,
+                meetingId: botRef.meetingId,
+                botName: botRef.botName,
+                timestamp: new Date().toISOString()
+              });
+            }
           }
 
           // Fix #4: Stale Page / Frozen Tab Recovery — if stuck for 60s while not in meeting/waiting room, force reload
@@ -3000,8 +3135,33 @@ async function launchZoomBotContainer(botId, standardUrl, directWcUrl, displayNa
                 const entry = `[${timestamp}] ${text}`;
                 botRef.transcripts.push(entry);
                 console.log(`[Bot ${botId} Transcript] ${entry}`);
+                if (botRef.wsStream) {
+                  botRef.wsStream.send({
+                    type: 'transcript',
+                    text: entry,
+                    timestamp: Date.now()
+                  });
+                }
               }
             });
+          }
+        }
+
+        // STEP 10: Broadcast Live Video Screen Frames over WebSocket (1 frame every 1.5s)
+        if (botRef.wsStream) {
+          const now = Date.now();
+          if (!botRef._lastWsFrameTime || (now - botRef._lastWsFrameTime > 1500)) {
+            botRef._lastWsFrameTime = now;
+            page.screenshot({ type: 'jpeg', quality: 50, timeout: 2000 }).then(buf => {
+              if (botRef.wsStream) {
+                botRef.wsStream.send({
+                  type: 'video_frame',
+                  format: 'image/jpeg',
+                  frame: buf.toString('base64'),
+                  timestamp: now
+                });
+              }
+            }).catch(() => {});
           }
         }
       } catch (e) {
@@ -3233,7 +3393,7 @@ app.get('/api/server/info', (req, res) => {
 // ── Android App Compatibility Routes (ServerRecorderClient.kt) ───────────────
 // POST /api/bot/record — Initiates headless Zoom recording from Android app
 app.post('/api/bot/record', async (req, res) => {
-  const { meetingUrl, passcode, displayName, zoomEmail, zoomPassword } = req.body || {};
+  const { meetingUrl, passcode, displayName, zoomEmail, zoomPassword, websocketEndpoint } = req.body || {};
   if (!meetingUrl) {
     return res.status(400).json({ success: false, message: 'meetingUrl is required' });
   }
@@ -3246,6 +3406,7 @@ app.post('/api/bot/record', async (req, res) => {
   const { meetingId, pwd, isWebinar, standardUrl, directWcUrl } = parsedUrls;
   const botId = `bot_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
   const botName = displayName || 'Android Bot Assistant';
+  const wsEndpoint = websocketEndpoint || process.env.WEBSOCKET_ENDPOINT || null;
 
   activeBots.set(botId, {
     id: botId,
@@ -3254,6 +3415,7 @@ app.post('/api/bot/record', async (req, res) => {
     botName,
     zoomEmail: zoomEmail || null,
     zoomPassword: zoomPassword || null,
+    websocketEndpoint: wsEndpoint,
     quality: '1080p',
     format: 'mp4',
     connectionType: 'wifi',
@@ -3265,7 +3427,7 @@ app.post('/api/bot/record', async (req, res) => {
   });
 
   setTimeout(() => {
-    launchZoomBotContainer(botId, standardUrl, directWcUrl, botName, pwd, '1080p', 'mp4', 'wifi');
+    launchZoomBotContainer(botId, standardUrl, directWcUrl, botName, pwd, '1080p', 'mp4', 'wifi', wsEndpoint);
   }, 50);
 
   const cloudStorage = require('./services/cloudStorageService');
@@ -3368,6 +3530,8 @@ app.get('/api/live/status', (req, res) => {
     currentUrl,
     hasAudio,
     audioBytes,
+    hasWebSocketStream: !!(bot.wsStream && bot.wsStream.isOpen),
+    websocketEndpoint: bot.websocketEndpoint || null,
     isWebinar: bot.isWebinar || false
   });
 });

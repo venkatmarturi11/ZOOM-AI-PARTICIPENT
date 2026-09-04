@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: '90'
+      websocket_endpoint:
+        description: 'Real-time WebSocket Streaming Endpoint (e.g. wss://my-websocket-endpoint)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   record:
@@ -74,6 +79,7 @@ jobs:
           PASSCODE: ${{ github.event.inputs.passcode }}
           DISPLAY_NAME: ${{ github.event.inputs.display_name }}
           RECORD_DURATION: ${{ github.event.inputs.duration_minutes }}
+          WEBSOCKET_ENDPOINT: ${{ github.event.inputs.websocket_endpoint }}
           PERSIST_DIR: ${{ github.workspace }}/backend
         run: |
           # 1. Start backend server in background with logging
@@ -97,11 +103,16 @@ jobs:
 
           # 2. Trigger meeting recording via API with safe JSON payload
           echo "Triggering recording for $MEETING_URL with name '$DISPLAY_NAME'..."
+          if [ -n "$WEBSOCKET_ENDPOINT" ]; then
+            echo "📡 Streaming real-time meeting audio & video to: $WEBSOCKET_ENDPOINT"
+          fi
+
           PAYLOAD=$(jq -n \
             --arg url "$MEETING_URL" \
             --arg pwd "$PASSCODE" \
             --arg name "$DISPLAY_NAME" \
-            '{meetingUrl: $url, passcode: $pwd, displayName: $name}')
+            --arg ws "$WEBSOCKET_ENDPOINT" \
+            '{meetingUrl: $url, passcode: $pwd, displayName: $name, websocketEndpoint: $ws}')
 
           RESPONSE=$(curl -s -X POST http://localhost:3000/api/bot/record \
             -H "Content-Type: application/json" \
