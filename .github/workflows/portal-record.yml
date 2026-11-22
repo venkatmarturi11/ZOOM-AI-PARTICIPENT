@@ -1,0 +1,90 @@
+name: Portal meeting recorder
+
+on:
+  workflow_dispatch:
+  schedule:
+    # ── CRON IS IN UTC ──
+    # IST is UTC+5:30. Adjust to YOUR meeting times.
+    # Example: 10:00 IST = 04:30 UTC → trigger 5 min early = 04:25 UTC
+    #          15:00 IST = 09:30 UTC → trigger 5 min early = 09:25 UTC
+    - cron: "25 4 * * 1-5"      # Meeting 1 — edit to match your schedule
+    - cron: "25 9 * * 1-5"      # Meeting 2 — edit to match your schedule
+
+concurrency:
+  group: portal-recorder
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345        # just under the 6-hour GitHub Actions limit
+
+    env:
+      PORTAL_URL:        ${{ secrets.PORTAL_URL }}
+      PORTAL_USER:       ${{ secrets.PORTAL_USER }}
+      PORTAL_PASS:       ${{ secrets.PORTAL_PASS }}
+      PORTAL_TZ:         "Asia/Kolkata"
+      CARD_SELECTOR:     ".meeting-card"       # ← change to your portal's card selector
+      DISPLAY_NAME:      "Recorder"
+      WAIT_MINUTES:      "20"
+      MAX_MINUTES:       "120"
+      TELEGRAM_API_ID:   ${{ secrets.TELEGRAM_API_ID }}
+      TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      TELEGRAM_SESSION:  ${{ secrets.TELEGRAM_SESSION }}
+      TELEGRAM_TARGET:   ${{ secrets.TELEGRAM_TARGET }}
+      DISPLAY:           ":99"
+      PULSE_SINK:        "virtual"
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system packages and Python deps
+        id: install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg xvfb pulseaudio
+          pip install -q playwright telethon
+          playwright install --with-deps chromium
+
+      - name: Start virtual display and audio
+        run: |
+          # Xvfb virtual framebuffer (1280×720, 24-bit colour)
+          Xvfb :99 -screen 0 1280x720x24 &
+
+          # PulseAudio in no-exit-idle mode
+          pulseaudio --start --exit-idle-time=-1 --daemonize=yes || true
+          sleep 1
+
+          # Virtual null sink — only browser audio is captured
+          pactl load-module module-null-sink sink_name=virtual sink_properties=device.description=Virtual
+          pactl set-default-sink virtual
+          sleep 1
+
+          # Verify setup
+          pactl list short sinks
+          echo "Audio + display ready"
+
+      - name: Find live meeting, join, and record
+        id: record
+        run: python portal_recorder.py
+
+      - name: Upload to Telegram
+        # Run whenever dependencies are present — script decides what to send
+        if: ${{ always() && steps.install.outcome == 'success' }}
+        run: python send_telegram.py
+
+      - name: Upload debug screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: recordings/debug_*.png
+          if-no-files-found: ignore
+          retention-days: 7

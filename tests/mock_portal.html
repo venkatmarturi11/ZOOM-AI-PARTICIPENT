@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mock Meeting Portal</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; }
+    h1 { color: #333; }
+    .meeting-card {
+      border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; margin: 1rem 0;
+      background: #fafafa; display: flex; justify-content: space-between; align-items: center;
+    }
+    .meeting-card h3 { margin: 0 0 0.3rem; }
+    .meeting-card .time { color: #666; font-size: 0.95rem; }
+    .meeting-card button {
+      background: #2d8cff; color: #fff; border: none; border-radius: 6px;
+      padding: 0.6rem 1.5rem; font-size: 1rem; cursor: pointer;
+    }
+    .meeting-card button:hover { background: #1a73e8; }
+    .meeting-card.past { opacity: 0.5; }
+    .note { background: #fff3cd; padding: 1rem; border-radius: 6px; margin-top: 2rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>📅 Today's Meetings</h1>
+
+  <!-- Card 1: morning meeting (edit the times to test) -->
+  <div class="meeting-card" id="card-morning">
+    <div>
+      <h3>Morning Standup</h3>
+      <span class="time">10:00 AM - 11:00 AM</span>
+    </div>
+    <button onclick="window.open('https://zoom.us/j/1111111111?pwd=mock','_blank')">Join</button>
+  </div>
+
+  <!-- Card 2: afternoon meeting -->
+  <div class="meeting-card" id="card-afternoon">
+    <div>
+      <h3>Afternoon Review</h3>
+      <span class="time">3:00 PM - 4:00 PM</span>
+    </div>
+    <button onclick="window.open('https://zoom.us/j/2222222222?pwd=mock','_blank')">Join</button>
+  </div>
+
+  <!-- Card 3: past meeting (should NOT be selected) -->
+  <div class="meeting-card past" id="card-past">
+    <div>
+      <h3>Yesterday's Retro</h3>
+      <span class="time">5:00 PM - 6:00 PM</span>
+    </div>
+    <button disabled>Ended</button>
+  </div>
+
+  <div class="note">
+    <strong>🧪 Test instructions:</strong><br>
+    1. Edit the times above to match the current time (or a few minutes in the future).<br>
+    2. Run: <code>python -m http.server 8080</code> in this directory.<br>
+    3. Set <code>PORTAL_URL=http://localhost:8080/tests/mock_portal.html</code><br>
+    4. Run <code>python portal_recorder.py</code> to verify card selection.<br>
+    <br>
+    The bot will select the card whose window contains the current time (±5 min early).
+  </div>
+</body>
+</html>
