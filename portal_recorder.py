@@ -38,7 +38,10 @@ FLAG        = "work/.recording_attempted"
 PORTAL_HOST = urlparse(PORTAL).netloc
 
 # ──────────────────────── patterns ─────────────────────────────
-TIME_RE = re.compile(r"(\d{1,2}):(\d{2})\s*([AP]M)?", re.I)
+TIME_RE = re.compile(
+    r"(\d{1,2})[:.](\d{2})\s*([AP]M)?|(\d{1,2})\s*([AP]M)",
+    re.I,
+)
 
 END_RE = re.compile(
     r"meeting (has )?ended|removed from the meeting|host has ended|"
@@ -108,17 +111,21 @@ def card_window(text, now):
 
     Supported formats:
       "10:00 AM - 11:00 AM"   two 12-h times
+      "6.00pm" or "7.30 pm"   dot-separated times
       "10:00 - 11:00 AM"      first time inherits AM/PM from second
       "15:00 to 16:00"        24-h format
-      "10:00 AM"              single time → +60 min
+      "6:00 PM" / "6pm"       single time → +60 min
 
     Returns (start, end) or None.
     """
-    ts = TIME_RE.findall(text)
-    if not ts:
+    matches = TIME_RE.findall(text)
+    if not matches:
         return None
-    # Convert list of tuples to mutable list of lists
-    ts = [list(t) for t in ts]
+    # Normalize match groups: [[hour, minute, ampm], ...]
+    ts = [
+        [m[0] or m[3], m[1] or "00", (m[2] or m[4] or "").strip()]
+        for m in matches
+    ]
     # "10:00 - 11:00 AM" → inherit AM/PM from second to first
     if len(ts) > 1 and not ts[0][2] and ts[1][2]:
         ts[0][2] = ts[1][2]

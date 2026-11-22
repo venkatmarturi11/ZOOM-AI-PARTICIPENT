@@ -38,6 +38,28 @@ class TestCardWindow:
         assert (start.hour, start.minute) == (11, 0)
         assert (end.hour, end.minute) == (13, 0)
 
+    # ── dot-separated and custom class formats ──
+
+    def test_dot_format_advance_java(self):
+        start, end = card_window("advacnce java/adv java at 6.00pm", _now(18))
+        assert (start.hour, start.minute) == (18, 0)
+        assert (end.hour, end.minute) == (19, 0)
+
+    def test_dot_format_react_js(self):
+        start, end = card_window("react js /react at 7.30 pm", _now(19, 30))
+        assert (start.hour, start.minute) == (19, 30)
+        assert (end.hour, end.minute) == (20, 30)
+
+    def test_single_hour_pm(self):
+        start, end = card_window("adv java at 6pm", _now(18))
+        assert (start.hour, start.minute) == (18, 0)
+        assert (end.hour, end.minute) == (19, 0)
+
+    def test_numbers_in_title_ignored(self):
+        start, end = card_window("Java 17 & React 18 class at 6.00pm", _now(18))
+        assert (start.hour, start.minute) == (18, 0)
+        assert (end.hour, end.minute) == (19, 0)
+
     # ── shared AM/PM ──
 
     def test_shared_am(self):
