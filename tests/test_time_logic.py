@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 # Make sure the project root is on sys.path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from portal_recorder import card_window, web_url, _dt
+from portal_recorder import card_window, web_url, _dt, normalize_selector
 
 TZ = ZoneInfo("Asia/Kolkata")
 
@@ -247,3 +247,24 @@ class TestDt:
     def test_24h_none(self):
         d = _dt("9", "00", None, _now(0))
         assert d.hour == 9
+
+
+# ═══════════════════════ normalize_selector ════════════════════
+
+class TestNormalizeSelector:
+    """normalize_selector converts single-child XPath to match all cards."""
+
+    def test_user_full_xpath(self):
+        result = normalize_selector("/html/body/div/div/div[1]/div[4]/div[1]")
+        assert result == "xpath=/html/body/div/div/div[1]/div[4]/div"
+
+    def test_xpath_already_prefixed(self):
+        result = normalize_selector("xpath=/html/body/div/div/div[1]/div[4]/div[1]")
+        assert result == "xpath=/html/body/div/div/div[1]/div[4]/div"
+
+    def test_css_selector_unchanged(self):
+        assert normalize_selector(".meeting-card") == ".meeting-card"
+
+    def test_empty_selector_default(self):
+        assert normalize_selector("") == ".meeting-card"
+        assert normalize_selector(None) == ".meeting-card"

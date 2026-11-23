@@ -24,7 +24,7 @@ jobs:
       PORTAL_USER:       ${{ secrets.PORTAL_USER }}
       PORTAL_PASS:       ${{ secrets.PORTAL_PASS }}
       PORTAL_TZ:         "Asia/Kolkata"
-      CARD_SELECTOR:     ".meeting-card"       # ← change to your portal's card selector
+      CARD_SELECTOR:     "/html/body/div/div/div[1]/div[4]/div"
       DISPLAY_NAME:      "Recorder"
       WAIT_MINUTES:      "20"
       MAX_MINUTES:       "120"

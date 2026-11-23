@@ -22,11 +22,27 @@ from urllib.parse import urlparse, parse_qs, urlencode
 from zoneinfo import ZoneInfo
 from playwright.sync_api import sync_playwright
 
+def normalize_selector(sel):
+    """Normalize CSS or XPath selector for Playwright.
+
+    If given a single-child XPath like '/html/body/.../div[1]', generalize to '/div'
+    so all sibling cards are discovered, and ensure the 'xpath=' prefix is added.
+    """
+    sel = (sel or "").strip()
+    if not sel:
+        return ".meeting-card"
+    if re.search(r"/[a-zA-Z0-9_-]+\[1\]$", sel):
+        sel = re.sub(r"\[1\]$", "", sel)
+    if sel.startswith("/") and not sel.startswith("xpath="):
+        return f"xpath={sel}"
+    return sel
+
+
 # ──────────────────────── configuration ────────────────────────
 E = os.environ.get
 PORTAL      = E("PORTAL_URL", "")
 TZ          = ZoneInfo(E("PORTAL_TZ", "Asia/Kolkata"))
-CARD        = E("CARD_SELECTOR", ".meeting-card")
+CARD        = normalize_selector(E("CARD_SELECTOR", "/html/body/div/div/div[1]/div[4]/div"))
 JOIN_RE     = re.compile(E("JOIN_TEXT", r"^\s*join( now| meeting)?\s*$"), re.I)
 EARLY       = int(E("JOIN_EARLY_MIN", "5"))
 WAIT        = int(E("WAIT_MINUTES", "20"))
@@ -143,7 +159,12 @@ def card_window(text, now):
 def find_live_card(page):
     """Return the first card whose time window contains *now* (±EARLY min)."""
     now = datetime.now(TZ)
-    for card in page.locator(CARD).all():
+    try:
+        cards = page.locator(CARD).all()
+    except Exception as exc:
+        log(f"Error querying cards with selector '{CARD}': {exc}")
+        return None
+    for card in cards:
         try:
             w = card_window(card.inner_text(), now)
             if w and w[0] - timedelta(minutes=EARLY) <= now <= w[1]:
@@ -440,7 +461,11 @@ def main():
         if not btn.count():
             btn = card.get_by_role("link", name=JOIN_RE)
         if not btn.count():
-            btn = card.locator("a, button").filter(has_text=JOIN_RE)
+            btn = card.locator("a, button, [role='button'], input[type='button']").filter(has_text=JOIN_RE)
+        if not btn.count():
+            btn = card.locator("a[href*='zoom.us'], a[href*='/j/'], a[href*='/wc/']")
+        if not btn.count():
+            btn = card.locator("a, button, [role='button']").filter(has_text=re.compile(r"join", re.I))
 
         allow_new["tab"] = True
         try:
