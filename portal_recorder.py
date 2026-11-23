@@ -40,7 +40,7 @@ def normalize_selector(sel):
 
 # ──────────────────────── configuration ────────────────────────
 E = os.environ.get
-PORTAL      = E("PORTAL_URL", "")
+PORTAL      = E("PORTAL_URL", "https://classes.nareshit.com/live")
 TZ          = ZoneInfo(E("PORTAL_TZ", "Asia/Kolkata"))
 CARD        = normalize_selector(E("CARD_SELECTOR", "/html/body/div/div/div[1]/div[4]/div"))
 JOIN_RE     = re.compile(E("JOIN_TEXT", r"^\s*join( now| meeting)?\s*$"), re.I)
@@ -54,8 +54,9 @@ FLAG        = "work/.recording_attempted"
 PORTAL_HOST = urlparse(PORTAL).netloc
 
 # ──────────────────────── patterns ─────────────────────────────
+DURATION_RE = re.compile(r"(\d{1,2})[:.](\d{2})\s*(?:Hr\'?s?|hrs?|hours?)", re.I)
 TIME_RE = re.compile(
-    r"(\d{1,2})[:.](\d{2})\s*([AP]M)?|(\d{1,2})\s*([AP]M)",
+    r"\b(\d{1,2})[:.](\d{2})\s*([AP]M)?|\b(\d{1,2})(\d{2})\s*([AP]M)|\b(\d{1,2})\s*([AP]M)\b",
     re.I,
 )
 
@@ -123,36 +124,58 @@ def _dt(h, m, ap, base):
 
 
 def card_window(text, now):
-    """Parse start/end times from card text.
+    """Parse start and end times from card text.
 
-    Supported formats:
-      "10:00 AM - 11:00 AM"   two 12-h times
-      "6.00pm" or "7.30 pm"   dot-separated times
-      "10:00 - 11:00 AM"      first time inherits AM/PM from second
-      "15:00 to 16:00"        24-h format
-      "6:00 PM" / "6pm"       single time → +60 min
-
-    Returns (start, end) or None.
+    Supports:
+      - NareshIT portal: "ADV JAVA 6 PM ... 06:00 PM • 01:30 Hr's" -> 18:00 to 19:30
+      - NareshIT portal: "React JS 730 PM ... 07:30 PM • 01:30 Hr's" -> 19:30 to 21:00
+      - Standard range:  "10:00 AM - 11:00 AM", "15:00 to 16:00"
+      - Shared period:   "10:00 - 11:00 AM"
+      - Single time:     "6:00 PM" / "6pm" -> duration or +60 min
     """
-    matches = TIME_RE.findall(text)
-    if not matches:
+    dur_match = DURATION_RE.search(text)
+    duration = None
+    if dur_match:
+        dh, dm = dur_match.groups()
+        duration = timedelta(hours=int(dh), minutes=int(dm))
+        text_no_dur = text[:dur_match.start()] + " " + text[dur_match.end():]
+    else:
+        text_no_dur = text
+
+    raw_times = []
+    for m in TIME_RE.finditer(text_no_dur):
+        g = m.groups()
+        h = g[0] or g[3] or g[6]
+        mi = g[1] or g[4] or "00"
+        ap = (g[2] or g[5] or g[7] or "").strip()
+        raw_times.append((h, mi, ap))
+
+    if not raw_times:
         return None
-    # Normalize match groups: [[hour, minute, ampm], ...]
-    ts = [
-        [m[0] or m[3], m[1] or "00", (m[2] or m[4] or "").strip()]
-        for m in matches
-    ]
-    # "10:00 - 11:00 AM" → inherit AM/PM from second to first
-    if len(ts) > 1 and not ts[0][2] and ts[1][2]:
-        ts[0][2] = ts[1][2]
-    start = _dt(*ts[0], now)
-    end = _dt(*ts[1], now) if len(ts) > 1 else start + timedelta(hours=1)
-    # Fix cross-period: "10:00 - 1:00 PM" (start wrongly got PM → 22:00)
-    if end < start:
-        start -= timedelta(hours=12)
-    # Overnight edge case (unlikely for daytime meetings)
-    if end < start:
-        end += timedelta(days=1)
+
+    # Inherit AM/PM if second has it and first doesn't
+    if len(raw_times) > 1 and not raw_times[0][2] and raw_times[1][2]:
+        raw_times[0] = (raw_times[0][0], raw_times[0][1], raw_times[1][2])
+
+    dts = [_dt(*t, now) for t in raw_times]
+    # Filter to distinct times (avoid duplicates like "6 PM", "@ 6:00 PM", "06:00 PM")
+    distinct = []
+    for d in dts:
+        if not any(abs((d - x).total_seconds()) < 300 for x in distinct):
+            distinct.append(d)
+
+    start = distinct[0]
+    if len(distinct) > 1:
+        end = distinct[1]
+        if end < start:
+            start -= timedelta(hours=12)
+        if end < start:
+            end += timedelta(days=1)
+    elif duration:
+        end = start + duration
+    else:
+        end = start + timedelta(hours=1)
+
     return start, end
 
 
@@ -221,12 +244,34 @@ def login_if_needed(page):
     if not user or not pw:
         return
     try:
-        if page.locator("input[type=password]").count():
-            page.locator("input[type=email], input[type=text]").first.fill(user)
-            page.locator("input[type=password]").first.fill(pw)
-            page.locator("button[type=submit], input[type=submit]").first.click()
+        pw_input = page.locator("input[type=password]")
+        if pw_input.count():
+            user_input = page.locator(
+                "input[type=email], input[type=tel], input[name*='user' i], "
+                "input[name*='email' i], input[name*='phone' i], input[name*='mobile' i], "
+                "input[placeholder*='email' i], input[placeholder*='mobile' i], "
+                "input[placeholder*='user' i], input[type=text]"
+            )
+            if user_input.count():
+                user_input.first.fill(user)
+            pw_input.first.fill(pw)
+
+            submit_btn = page.locator(
+                "button[type=submit], input[type=submit], "
+                "button:has-text('Login'), button:has-text('Log in'), button:has-text('Sign In')"
+            )
+            if submit_btn.count():
+                submit_btn.first.click()
+            else:
+                pw_input.first.press("Enter")
+
             page.wait_for_load_state("networkidle", timeout=15000)
-            log("Portal login completed")
+            log("Portal login submitted")
+
+            # Navigate back to live classes if redirected elsewhere
+            if "live" not in page.url and PORTAL:
+                log(f"Navigating to {PORTAL} after login")
+                page.goto(PORTAL, wait_until="domcontentloaded")
     except Exception as exc:
         log(f"Portal login attempt: {exc}")
 

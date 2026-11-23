@@ -40,6 +40,34 @@ class TestCardWindow:
 
     # ── dot-separated and custom class formats ──
 
+    # ── real portal screenshot tests (NareshIT) ──
+
+    def test_nareshit_advance_java_full_card(self):
+        text = """
+        5 hrs 28 Mins Left
+        ADV JAVA 6 PM by Mr kishan ...
+        ADV. JAVA @ 6:00 PM by Mr. kis...
+        Mr.Kishan
+        06:00 PM • 01:30 Hr's
+        Join
+        """
+        start, end = card_window(text, _now(18))
+        assert (start.hour, start.minute) == (18, 0)
+        assert (end.hour, end.minute) == (19, 30)
+
+    def test_nareshit_react_js_full_card(self):
+        text = """
+        6 hrs 58 Mins Left
+        React JS 730 PM by MrSudhaka...
+        React JS @ 7:30 PM by Mr. Sudh...
+        Sudhakar Sharma
+        07:30 PM • 01:30 Hr's
+        Join
+        """
+        start, end = card_window(text, _now(19, 30))
+        assert (start.hour, start.minute) == (19, 30)
+        assert (end.hour, end.minute) == (21, 0)
+
     def test_dot_format_advance_java(self):
         start, end = card_window("advacnce java/adv java at 6.00pm", _now(18))
         assert (start.hour, start.minute) == (18, 0)
