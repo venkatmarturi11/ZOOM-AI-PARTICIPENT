@@ -291,14 +291,24 @@ def login_if_needed(page):
 
             page.wait_for_load_state("networkidle", timeout=15000)
             time.sleep(3)
-            log(f"Portal login submitted. Current URL: {page.url}")
+            log(f"✅ Portal login submitted! Current URL: {page.url}")
 
-            # Navigate back to live classes if redirected elsewhere
+            # Ensure we navigate to the 'Live Classes' tab after login
+            if "live" not in page.url:
+                log("➡️ Navigating to 'Live Classes' tab...")
+                live_tab = page.get_by_text("Live Classes")
+                if live_tab.count():
+                    live_tab.first.click()
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                    time.sleep(3)
+                    log(f"   ✓ Clicked 'Live Classes' tab! Current URL: {page.url}")
+
             if "live" not in page.url and PORTAL:
-                log(f"Navigating to {PORTAL} after login")
+                log(f"   ➡️ Direct navigating to {PORTAL}...")
                 page.goto(PORTAL, wait_until="networkidle")
+                time.sleep(2)
     except Exception as exc:
-        log(f"Portal login attempt: {exc}")
+        log(f"⚠️ Portal login attempt: {exc}")
 
 
 # ──────────────────────── Zoom join flow ───────────────────────
@@ -515,11 +525,31 @@ def main():
         portal.goto(PORTAL, wait_until="domcontentloaded")
         login_if_needed(portal)
 
+        # ── ensure we are on the Live Classes tab ──
+        if "live" not in portal.url:
+            log("➡️ Opening 'Live Classes' tab...")
+            live_tab = portal.get_by_text("Live Classes")
+            if live_tab.count():
+                live_tab.first.click()
+                portal.wait_for_load_state("networkidle", timeout=15000)
+                time.sleep(2)
+                log(f"   ✓ Opened Live Classes tab ({portal.url})")
+            elif PORTAL:
+                portal.goto(PORTAL, wait_until="networkidle")
+
         # ── 1. wait for a live meeting card ──
         deadline = time.time() + WAIT * 60
         card = None
         iteration = 0
         while time.time() < deadline:
+            # Make sure we remain on the live classes page on each check
+            if "live" not in portal.url:
+                live_tab = portal.get_by_text("Live Classes")
+                if live_tab.count():
+                    live_tab.first.click()
+                    portal.wait_for_load_state("networkidle", timeout=15000)
+                    time.sleep(2)
+
             iteration += 1
             log(f"🔍 [Check #{iteration}] Scanning for live class...")
             card = find_live_card(portal)
