@@ -185,16 +185,39 @@ def find_live_card(page):
     try:
         cards = page.locator(CARD).all()
     except Exception as exc:
-        log(f"Error querying cards with selector '{CARD}': {exc}")
+        log(f"⚠️ Error querying cards with selector '{CARD}': {exc}")
         return None
-    for card in cards:
+
+    if not cards:
+        log(f"   (No elements found matching selector '{CARD}')")
+        return None
+
+    log(f"   Found {len(cards)} card(s) on portal (current time: {now:%I:%M %p %Z}):")
+    live_card = None
+
+    for idx, card in enumerate(cards, 1):
         try:
-            w = card_window(card.inner_text(), now)
-            if w and w[0] - timedelta(minutes=EARLY) <= now <= w[1]:
-                return card
-        except Exception:
+            raw = card.inner_text().strip()
+            w = card_window(raw, now)
+            lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+            title = lines[0] if lines else f"Card #{idx}"
+            if len(lines) > 1 and ("hrs" in lines[0].lower() or "left" in lines[0].lower()):
+                title = lines[1]  # Use class name instead of "5 hrs left" badge
+
+            if w:
+                start, end = w
+                is_live = (start - timedelta(minutes=EARLY)) <= now <= end
+                status_str = f"🟢 LIVE NOW ({start:%I:%M %p} - {end:%I:%M %p})" if is_live else f"⏳ Scheduled for {start:%I:%M %p} - {end:%I:%M %p}"
+                log(f"   [{idx}] {title[:35]:<35} -> {status_str}")
+                if is_live and not live_card:
+                    live_card = card
+            else:
+                log(f"   [{idx}] {title[:35]:<35} -> ℹ️  (No valid time range detected)")
+        except Exception as exc:
+            log(f"   [{idx}] Error reading card #{idx}: {exc}")
             continue
-    return None
+
+    return live_card
 
 
 # ──────────────────────── helpers ──────────────────────────────
@@ -286,32 +309,33 @@ def join_zoom(page):
     """
     page.wait_for_load_state("domcontentloaded")
     guest_url = web_url(page.url)
-    log(f"Zoom URL: {page.url[:100]}")
+    log(f"🌐 Opened Zoom launch page: {page.url[:80]}...")
 
     # Step 1 — "Join from your browser"
+    log("🔍 Looking for 'Join from your browser' link (avoiding desktop app)...")
     found = False
     for attempt in range(25):
         if click(page, r"join from (your )?browser", timeout=600):
-            log("Clicked 'Join from your browser'")
+            log("   ✓ Clicked 'Join from your browser'")
             found = True
             break
         if click(page, r"join from (your )?browser", role="link", timeout=400):
-            log("Clicked 'Join from your browser' (link)")
+            log("   ✓ Clicked 'Join from your browser' (link)")
             found = True
             break
         if attempt == 15:
-            log("'Join from browser' not visible after 15 s, navigating to web client")
+            log("   ℹ️  'Join from browser' not visible after 15s; opening direct web URL...")
             page.goto(guest_url, wait_until="domcontentloaded")
         time.sleep(1)
 
     if not found:
-        log("Forcing web client URL")
+        log("   ➡️ Navigating directly to web client...")
         page.goto(guest_url, wait_until="domcontentloaded")
     time.sleep(3)
 
     # Step 2 — sign-in bounce guard
     if re.search(r"sign-?in|sign-?up|register|login|chrome-error", page.url, re.I):
-        log(f"Redirected to sign-in ({page.url[:80]}), bouncing back")
+        log(f"   🛡️ Redirected to sign-in ({page.url[:60]}), bouncing back to guest page...")
         page.goto(guest_url, wait_until="domcontentloaded")
         time.sleep(3)
 
@@ -325,16 +349,17 @@ def join_zoom(page):
                 inp = fr.locator("#input-for-name, #inputname, [placeholder*='name' i]")
                 if inp.count():
                     inp.first.fill(NAME, timeout=2000)
-                    log(f"Display name set: '{NAME}'")
+                    log(f"   ✓ Set participant name: '{NAME}'")
                     break
             except Exception:
                 pass
 
     # Step 5 — click Join (host forces muted + video off, so only Join)
     joined = False
+    log("🔘 Clicking 'Join Meeting' button...")
     for attempt in range(20):
         if click(page, r"^join$|^join meeting$", timeout=800):
-            log("Clicked Join button")
+            log("   ✓ Successfully clicked Join!")
             joined = True
             break
         click(page, DISMISS, timeout=300)
@@ -342,19 +367,19 @@ def join_zoom(page):
 
     if not joined:
         screenshot(page, "join_failed")
-        log("WARNING: Could not click the Join button")
+        log("❌ WARNING: Could not click the Join button (debug screenshot saved to artifacts)")
     time.sleep(5)
 
     # Step 6 — "Join Audio by Computer"
     for _ in range(5):
         if click(page, r"join audio by computer|computer audio", timeout=1500):
-            log("Clicked 'Join Audio by Computer'")
+            log("   ✓ Connected audio ('Join Audio by Computer')")
             break
         time.sleep(1)
 
     # Final dismiss sweep
     click(page, DISMISS, timeout=500)
-    log("Join flow completed")
+    log("🎉 Successfully connected to Zoom meeting!")
     return joined
 
 
@@ -467,12 +492,18 @@ def main():
         )
         ctx.route("**/*", route_guard)
 
-        # ── block unwanted tabs ──
+        # ── create main portal page first ──
+        portal = ctx.new_page()
+        portal.on("dialog", lambda d: d.dismiss())
+
+        # ── block unwanted pop-up tabs (except when clicking Join) ──
         allow_new = {"tab": False}
 
         def on_new_page(p):
+            if p == portal:
+                return
             if not allow_new["tab"]:
-                log(f"Blocked unwanted tab: {p.url[:60]}")
+                log(f"🛡️  Blocked unwanted pop-up tab: {p.url[:60]}")
                 try:
                     p.close()
                 except Exception:
@@ -480,30 +511,32 @@ def main():
 
         ctx.on("page", on_new_page)
 
-        portal = ctx.new_page()
-        portal.on("dialog", lambda d: d.dismiss())
-        log(f"Opening portal: {PORTAL[:80]}")
+        log(f"🚀 Opening meetings portal: {PORTAL}")
         portal.goto(PORTAL, wait_until="domcontentloaded")
         login_if_needed(portal)
 
         # ── 1. wait for a live meeting card ──
         deadline = time.time() + WAIT * 60
         card = None
+        iteration = 0
         while time.time() < deadline:
+            iteration += 1
+            log(f"🔍 [Check #{iteration}] Scanning for live class...")
             card = find_live_card(portal)
             if card:
-                log("Live meeting card found!")
+                log("🎯 LIVE CLASS FOUND! Preparing to join...")
                 break
-            log("No live meeting, retrying in 30 s...")
+            log(f"⏳ Class is not live yet. Next check in 30 seconds...")
             time.sleep(30)
             portal.reload(wait_until="domcontentloaded")
 
         if not card:
-            log("No live meeting found within wait period. Exiting quietly.")
+            log("ℹ️  No live meeting found within the 20-minute window. Exiting quietly.")
             browser.close()
             sys.exit(0)
 
         # ── 2. click the Join button ──
+        log("👉 Clicking 'Join' on the live class card...")
         btn = card.get_by_role("button", name=JOIN_RE)
         if not btn.count():
             btn = card.get_by_role("link", name=JOIN_RE)
@@ -519,10 +552,10 @@ def main():
             with ctx.expect_page(timeout=15000) as page_info:
                 btn.first.click()
             meet = page_info.value
-            log("Join opened in a new tab")
+            log("   ✓ Zoom opened in a new tab")
         except Exception:
             meet = portal
-            log("Join stayed in the same tab")
+            log("   ✓ Zoom opened in the same tab")
         allow_new["tab"] = False
 
         meet.on("dialog", lambda d: d.dismiss())
@@ -543,7 +576,8 @@ def main():
 
         # ── 4. record until meeting ends or hard limit ──
         ff = start_ffmpeg()
-        log("Recording started")
+        log("🎥 Screen and audio recording started!")
+        log(f"⏱️  Monitoring meeting... (Hard time limit: {MAX_MIN} mins)")
         end_time = time.time() + MAX_MIN * 60
         guest_url = ""
         try:
@@ -551,29 +585,34 @@ def main():
         except Exception:
             pass
 
+        loop_count = 0
         try:
             while time.time() < end_time:
                 time.sleep(4)
+                loop_count += 1
+                if loop_count % 15 == 0:
+                    elapsed_min = int(loop_count * 4 / 60)
+                    log(f"🔴 Meeting recording active... ({elapsed_min} min elapsed)")
 
                 # Tab closed?
                 if meet.is_closed():
-                    log("Meeting tab closed")
+                    log("🏁 Meeting tab was closed by host or browser.")
                     break
 
                 # URL check
                 try:
                     cur = meet.url
                 except Exception:
-                    log("Cannot read URL — tab likely closed")
+                    log("🏁 Cannot read page URL — meeting tab closed.")
                     break
 
                 if "postattendee" in cur:
-                    log("Post-attendee page detected")
+                    log("🏁 Meeting ended (Zoom post-attendee page detected).")
                     break
 
                 # Bounce back if redirected to a login page
                 if LOGIN_RE.search(cur) and guest_url:
-                    log(f"Redirected to login ({cur[:60]}), bouncing back")
+                    log(f"   🛡️ Redirected to login ({cur[:60]}), bouncing back to meeting...")
                     meet.goto(guest_url, wait_until="domcontentloaded")
                     time.sleep(3)
                     continue
@@ -591,7 +630,7 @@ def main():
                         try:
                             body = fr.inner_text("body", timeout=1500)
                             if END_RE.search(body):
-                                log("End-of-meeting text detected")
+                                log("🏁 Meeting ended (End-of-meeting notice detected).")
                                 ended = True
                                 break
                         except Exception:
@@ -602,18 +641,20 @@ def main():
                     pass
 
         except KeyboardInterrupt:
-            log("Interrupted")
+            log("🛑 Recording manually interrupted.")
         finally:
+            log("⏹️  Stopping screen recording...")
             stop_ffmpeg(ff)
             if not meet.is_closed():
                 screenshot(meet, "final")
             browser.close()
 
         # ── 5. compress ──
+        log("🔄 Starting video post-processing and compression...")
         if compress():
-            log(f"Done. Output: {OUT}")
+            log(f"🎉 Complete! Final video ready for Telegram delivery: {OUT}")
         else:
-            log("Compression produced no output")
+            log("⚠️ Compression finished with no output file.")
 
 
 if __name__ == "__main__":

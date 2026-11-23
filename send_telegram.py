@@ -44,7 +44,7 @@ async def main():
 
     # Nothing to do: no meeting was live
     if not files and not attempted:
-        print("No meeting was live and no recording attempted. Nothing to send.")
+        print("ℹ️  No live meeting was scheduled at this time. Exiting quietly with no message.")
         return
 
     # Connect
@@ -52,11 +52,13 @@ async def main():
     api_id   = os.environ.get("TELEGRAM_API_ID", "")
     api_hash = os.environ.get("TELEGRAM_API_HASH", "")
     if not session or not api_id or not api_hash:
-        print("ERROR: Telegram credentials not set, skipping upload.", file=sys.stderr)
+        print("❌ ERROR: Telegram credentials not set in secrets, skipping upload.", file=sys.stderr)
         return
 
+    print("📡 Connecting to Telegram via MTProto...")
     client = TelegramClient(StringSession(session), int(api_id), api_hash)
     await client.start()
+    print("   ✓ Connected to Telegram successfully!")
 
     target = os.environ.get("TELEGRAM_TARGET") or "me"
     if isinstance(target, str) and target.lstrip("-").isdigit():
@@ -73,14 +75,16 @@ async def main():
         )
         debug_screens = sorted(glob.glob("recordings/debug_*.png"))
         if debug_screens:
+            print("📸 Attaching debug failure screenshot to Telegram...")
             await client.send_file(target, debug_screens[-1], caption=msg)
         else:
             await client.send_message(target, msg)
-        print("Sent failure notification to Telegram.")
+        print("⚠️ Sent failure notification to Telegram.")
         await client.disconnect()
         return
 
     # Upload each recording
+    print(f"📦 Found {len(files)} video file(s) to upload:")
     for f in files:
         parts = split(f) if os.path.getsize(f) > LIMIT else [f]
         for i, p in enumerate(parts, 1):
@@ -88,16 +92,16 @@ async def main():
             caption = f"📹 Meeting recording — {now}\nPart {i}/{len(parts)} ({size_mb:.0f} MB)"
             if len(parts) == 1:
                 caption = f"📹 Meeting recording — {now} ({size_mb:.0f} MB)"
-            print(f"Uploading {p} ({size_mb:.0f} MB)...", flush=True)
+            print(f"   🚀 Uploading {p} ({size_mb:.0f} MB)...", flush=True)
             await client.send_file(
                 target, p,
                 caption=caption,
                 supports_streaming=True,
             )
-            print(f"  ✓ Sent: {caption}", flush=True)
+            print(f"   ✓ Uploaded: {caption}", flush=True)
 
     await client.disconnect()
-    print("All uploads complete.")
+    print("✨ All Telegram uploads completed successfully!")
 
 
 if __name__ == "__main__":
