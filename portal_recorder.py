@@ -193,7 +193,7 @@ def find_live_card(page):
         return None
 
     log(f"   Found {len(cards)} card(s) on portal (current time: {now:%I:%M %p %Z}):")
-    live_card = None
+    candidates = []
 
     for idx, card in enumerate(cards, 1):
         try:
@@ -209,15 +209,23 @@ def find_live_card(page):
                 is_live = (start - timedelta(minutes=EARLY)) <= now <= end
                 status_str = f"🟢 LIVE NOW ({start:%I:%M %p} - {end:%I:%M %p})" if is_live else f"⏳ Scheduled for {start:%I:%M %p} - {end:%I:%M %p}"
                 log(f"   [{idx}] {title[:35]:<35} -> {status_str}")
-                if is_live and not live_card:
-                    live_card = card
+                if is_live:
+                    dist = abs((now - start).total_seconds())
+                    candidates.append((dist, idx, title, card, start, end))
             else:
                 log(f"   [{idx}] {title[:35]:<35} -> ℹ️  (No valid time range detected)")
         except Exception as exc:
             log(f"   [{idx}] Error reading card #{idx}: {exc}")
             continue
 
-    return live_card
+    if not candidates:
+        return None
+
+    # Pick exactly ONE card whose start time is closest to now
+    candidates.sort(key=lambda c: c[0])
+    best = candidates[0]
+    log(f"   🎯 Selected 1 card matching current time: '{best[2]}' ({best[4]:%I:%M %p} - {best[5]:%I:%M %p})")
+    return best[3]
 
 
 # ──────────────────────── helpers ──────────────────────────────

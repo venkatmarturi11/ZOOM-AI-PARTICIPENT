@@ -197,6 +197,22 @@ class TestLiveCardLogic:
     def test_before_window(self):
         assert not self._is_live("3:00 PM - 4:00 PM", 14, 0)
 
+    def test_single_card_selection_at_5_55_pm(self):
+        c1 = "ADV JAVA 6 PM ... 06:00 PM • 01:30 Hr's"
+        c2 = "React JS 730 PM ... 07:30 PM • 01:30 Hr's"
+        assert self._is_live(c1, 17, 55) is True
+        assert self._is_live(c2, 17, 55) is False
+
+    def test_single_card_selection_at_7_25_pm(self):
+        c1 = "ADV JAVA 6 PM ... 06:00 PM • 01:30 Hr's"
+        c2 = "React JS 730 PM ... 07:30 PM • 01:30 Hr's"
+        now = _now(19, 25)
+        w1 = card_window(c1, now)
+        w2 = card_window(c2, now)
+        dist1 = abs((now - w1[0]).total_seconds())
+        dist2 = abs((now - w2[0]).total_seconds())
+        assert dist2 < dist1  # c2 is starting now (5 min) vs c1 ending (85 min ago)
+
 
 # ═══════════════════════ web_url ═══════════════════════════════
 
