@@ -208,3 +208,11 @@ The bot will find the live card, click Join, and try to open Zoom (which will fa
 - The bot joins only through **your own portal's meeting link**.
 - It **never bypasses** host settings (passcodes, waiting rooms, auth requirements).
 - The `DISPLAY_NAME` (default: "Recorder") is visible to all participants — **you** are responsible for informing attendees and complying with consent/recording laws in your jurisdiction.
+
+---
+
+## Speed, cost and parallel runs
+
+- **Caching**: the workflow caches pip packages, apt packages (ffmpeg, xvfb, pulseaudio) and the Playwright Chromium browser. The first run is slow; later runs reuse the caches. `requirements.txt` is pinned so the browser cache always matches the Playwright version. If you change a version, the cache refreshes automatically.
+- **Parallel classes**: each cron schedule has its own concurrency group, so a class that starts while the previous one is still being compressed or uploaded is joined on time.
+- **Minutes**: GitHub Free gives 2,000 minutes/month for private repos. Two 1.5-hour classes a day can exceed that. Use a paid plan or a self-hosted runner (change `runs-on: ubuntu-latest` to `runs-on: self-hosted`).

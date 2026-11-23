@@ -68,6 +68,12 @@ class TestCardWindow:
         assert (start.hour, start.minute) == (19, 30)
         assert (end.hour, end.minute) == (21, 0)
 
+    def test_rescheduled_title_vs_real_time(self):
+        text = "ADV JAVA 6 PM by Mr kishan\nMr.Kishan\n06:30 PM \u2022 01:30 Hr's\nJoin"
+        start, end = card_window(text, _now(18, 30))
+        assert (start.hour, start.minute) == (18, 30)
+        assert (end.hour, end.minute) == (20, 0)
+
     def test_dot_format_advance_java(self):
         start, end = card_window("advacnce java/adv java at 6.00pm", _now(18))
         assert (start.hour, start.minute) == (18, 0)
@@ -212,6 +218,12 @@ class TestLiveCardLogic:
         dist1 = abs((now - w1[0]).total_seconds())
         dist2 = abs((now - w2[0]).total_seconds())
         assert dist2 < dist1  # c2 is starting now (5 min) vs c1 ending (85 min ago)
+
+    def test_no_card_selected_off_hours(self):
+        c1 = "ADV JAVA 6 PM ... 06:00 PM • 01:30 Hr's"
+        c2 = "React JS 730 PM ... 07:30 PM • 01:30 Hr's"
+        assert self._is_live(c1, 13, 45) is False
+        assert self._is_live(c2, 13, 45) is False
 
 
 # ═══════════════════════ web_url ═══════════════════════════════

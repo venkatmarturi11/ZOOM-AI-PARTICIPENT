@@ -138,7 +138,7 @@ def card_window(text, now):
     if dur_match:
         dh, dm = dur_match.groups()
         duration = timedelta(hours=int(dh), minutes=int(dm))
-        text_no_dur = text[:dur_match.start()] + " " + text[dur_match.end():]
+        text_no_dur = text[:dur_match.start()]   # only look at times BEFORE the duration
     else:
         text_no_dur = text
 
@@ -158,6 +158,10 @@ def card_window(text, now):
         raw_times[0] = (raw_times[0][0], raw_times[0][1], raw_times[1][2])
 
     dts = [_dt(*t, now) for t in raw_times]
+    if duration:
+        # The time printed right before the duration is the real start
+        # (a title like "6 PM" may be outdated if the class was rescheduled).
+        return dts[-1], dts[-1] + duration
     # Filter to distinct times (avoid duplicates like "6 PM", "@ 6:00 PM", "06:00 PM")
     distinct = []
     for d in dts:

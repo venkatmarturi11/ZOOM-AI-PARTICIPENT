@@ -11,7 +11,7 @@ on:
     - cron: "55 13 * * *"
 
 concurrency:
-  group: portal-recorder
+  group: portal-recorder-${{ github.event.schedule || github.run_id }}   # each class gets its own parallel job
   cancel-in-progress: false
 
 jobs:
@@ -40,18 +40,37 @@ jobs:
         id: checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python (with pip cache)
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-      - name: Install system packages and Python deps
+      - name: Cache apt packages (ffmpeg, xvfb, pulseaudio)
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: ffmpeg xvfb pulseaudio
+          version: "1.0"
+
+      - name: Install Python packages
+        run: pip install -r requirements.txt
+
+      - name: Cache Playwright browser
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Install Chromium
         id: install
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg xvfb pulseaudio
-          pip install -q playwright telethon
-          playwright install --with-deps chromium
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            playwright install-deps chromium      # browser cached, only system libs needed
+          else
+            playwright install --with-deps chromium
+          fi
 
       - name: Start virtual display and audio
         run: |
