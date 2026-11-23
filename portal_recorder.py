@@ -244,20 +244,21 @@ def login_if_needed(page):
     if not user or not pw:
         return
     try:
-        pw_input = page.locator("input[type=password]")
+        pw_input = page.locator("input[type=password], input[name=password]")
         if pw_input.count():
+            log("Portal login page detected, submitting credentials...")
             user_input = page.locator(
+                "input[name=Login], input[placeholder*='Email or Phone' i], "
                 "input[type=email], input[type=tel], input[name*='user' i], "
                 "input[name*='email' i], input[name*='phone' i], input[name*='mobile' i], "
-                "input[placeholder*='email' i], input[placeholder*='mobile' i], "
-                "input[placeholder*='user' i], input[type=text]"
+                "input[placeholder*='mobile' i], input[placeholder*='user' i], input[type=text]"
             )
             if user_input.count():
                 user_input.first.fill(user)
             pw_input.first.fill(pw)
 
             submit_btn = page.locator(
-                "button[type=submit], input[type=submit], "
+                ".login-submit-button, button[type=submit], input[type=submit], "
                 "button:has-text('Login'), button:has-text('Log in'), button:has-text('Sign In')"
             )
             if submit_btn.count():
@@ -266,12 +267,13 @@ def login_if_needed(page):
                 pw_input.first.press("Enter")
 
             page.wait_for_load_state("networkidle", timeout=15000)
-            log("Portal login submitted")
+            time.sleep(3)
+            log(f"Portal login submitted. Current URL: {page.url}")
 
             # Navigate back to live classes if redirected elsewhere
             if "live" not in page.url and PORTAL:
                 log(f"Navigating to {PORTAL} after login")
-                page.goto(PORTAL, wait_until="domcontentloaded")
+                page.goto(PORTAL, wait_until="networkidle")
     except Exception as exc:
         log(f"Portal login attempt: {exc}")
 
