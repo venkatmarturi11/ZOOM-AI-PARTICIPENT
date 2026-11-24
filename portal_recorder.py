@@ -183,26 +183,136 @@ def card_window(text, now):
     return start, end
 
 
+SCAN = {"read": 0, "pending": False}   # filled by find_live_card on every scan
+EARLY_EXIT = E("EARLY_EXIT", "true").lower() == "true"
+
+
+def _auto_discover_cards(page):
+    """Auto-discover class card containers by locating Join buttons and walking up to
+    the nearest ancestor that also contains time text (e.g. '06:00 PM • 01:30 Hr's').
+    Used as a fallback when the configured CARD_SELECTOR misses the real cards."""
+    try:
+        # Clean up old markers from a previous call
+        page.evaluate("() => document.querySelectorAll('[data-portal-card]').forEach(e => e.removeAttribute('data-portal-card'))")
+        cards_info = page.evaluate("""() => {
+            const joinRe = /^\\s*join(\\s+now|\\s+meeting)?\\s*$/i;
+            const timeRe = /\\d{1,2}[:.:]\\d{2}\\s*[AP]M/i;
+            const buttons = [...document.querySelectorAll('button, a, [role="button"]')]
+                .filter(el => joinRe.test((el.textContent || '').trim()) && el.offsetParent !== null);
+            const results = [];
+            const seen = new Set();
+            for (const btn of buttons) {
+                let el = btn.parentElement;
+                for (let d = 0; d < 10 && el && el !== document.body; d++, el = el.parentElement) {
+                    const text = (el.innerText || '').trim();
+                    if (timeRe.test(text) && text.length < 800 && !seen.has(text)) {
+                        seen.add(text);
+                        const marker = '__card_' + results.length;
+                        el.setAttribute('data-portal-card', marker);
+                        results.push(marker);
+                        break;
+                    }
+                }
+            }
+            return results;
+        }""")
+        if not cards_info:
+            return []
+        return [page.locator(f"[data-portal-card='{m}']").first
+                for m in cards_info
+                if page.locator(f"[data-portal-card='{m}']").count()]
+    except Exception as exc:
+        log(f"   Auto-discover fallback error: {exc}")
+        return []
+
+
+def _ensure_live_tab(page):
+    """After an SPA reload, explicitly re-select Live Classes > Today's Classes."""
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except Exception:
+        pass
+    time.sleep(1)
+    try:
+        tab = page.get_by_text(re.compile(r"Live\s*Classes", re.I))
+        if tab.count():
+            tab.first.click()
+            time.sleep(1)
+    except Exception:
+        pass
+    try:
+        tab = page.get_by_text(re.compile(r"Today.?s\s*Classes", re.I))
+        if tab.count():
+            tab.first.click()
+            time.sleep(1)
+    except Exception:
+        pass
+    try:
+        page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
+    time.sleep(2)
+
+
+def wait_for_cards(page, seconds=15):
+    """After a reload the portal (a single-page app) is empty for a moment.
+    Wait for the network to settle and for some card text to appear before scanning."""
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except Exception:
+        pass
+    end = time.time() + seconds
+    while time.time() < end:
+        try:
+            if any(c.inner_text().strip() for c in page.locator(CARD).all()):
+                return True
+        except Exception:
+            pass
+        time.sleep(1)
+    return False
+
+
 def find_live_card(page):
     """Return the first card whose time window contains *now* (±EARLY min)."""
     now = datetime.now(TZ)
+    SCAN["read"], SCAN["pending"] = 0, False
     try:
         cards = page.locator(CARD).all()
     except Exception as exc:
         log(f"⚠️ Error querying cards with selector '{CARD}': {exc}")
-        return None
+        cards = []
 
-    if not cards:
-        log(f"   (No elements found matching selector '{CARD}')")
-        return None
+    # Check if primary selector found any cards with parseable times
+    primary_has_times = False
+    if cards:
+        for c in cards:
+            try:
+                if card_window(c.inner_text(timeout=2000).strip(), now):
+                    primary_has_times = True
+                    break
+            except Exception:
+                pass
+
+    if not primary_has_times:
+        fallback = _auto_discover_cards(page)
+        if fallback:
+            log(f"   (Primary selector found no timed cards; using {len(fallback)} auto-discovered card(s) with Join buttons)")
+            cards = fallback
+        elif not cards:
+            log(f"   (No class cards found on portal)")
+            return None
 
     log(f"   Found {len(cards)} card(s) on portal (current time: {now:%I:%M %p %Z}):")
     candidates = []
 
     for idx, card in enumerate(cards, 1):
         try:
-            raw = card.inner_text().strip()
+            raw = card.inner_text(timeout=3000).strip()
             w = card_window(raw, now)
+            if raw:
+                SCAN["read"] += 1
+            if w and w[1] > now:
+                SCAN["pending"] = True      # live now or still to come today
             lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
             title = lines[0] if lines else f"Card #{idx}"
             if len(lines) > 1 and ("hrs" in lines[0].lower() or "left" in lines[0].lower()):
@@ -218,6 +328,9 @@ def find_live_card(page):
                     candidates.append((dist, idx, title, card, start, end))
             else:
                 log(f"   [{idx}] {title[:35]:<35} -> ℹ️  (No valid time range detected)")
+                # Debug: log first 120 chars of raw text for diagnostics
+                if raw:
+                    log(f"         raw: {repr(raw[:120])}")
         except Exception as exc:
             log(f"   [{idx}] Error reading card #{idx}: {exc}")
             continue
@@ -259,18 +372,8 @@ def click(page, pattern, role="button", timeout=800):
 
 
 def web_url(u):
-    """Convert a Zoom launcher URL to the browser-join URL.
-
-    https://zoom.us/j/12345678?pwd=abc#success
-    → https://zoom.us/wc/join/12345678?pwd=abc
-    """
-    p = urlparse(u)
-    m = re.search(r"/(?:j|w|wc/join)/(\d+)", p.path)
-    if not m:
-        return u
-    q = parse_qs(p.query)
-    keep = {k: q[k][0] for k in ("tk", "pwd") if k in q}
-    return f"{p.scheme}://{p.netloc}/wc/join/{m.group(1)}?{urlencode(keep)}"
+    """Return the URL as-is — no rewriting, to preserve one-time tokens (tk) and passwords."""
+    return u
 
 
 def login_if_needed(page):
@@ -538,29 +641,18 @@ def main():
         login_if_needed(portal)
 
         # ── ensure we are on the Live Classes tab ──
-        if "live" not in portal.url:
-            log("➡️ Opening 'Live Classes' tab...")
-            live_tab = portal.get_by_text("Live Classes")
-            if live_tab.count():
-                live_tab.first.click()
-                portal.wait_for_load_state("networkidle", timeout=15000)
-                time.sleep(2)
-                log(f"   ✓ Opened Live Classes tab ({portal.url})")
-            elif PORTAL:
-                portal.goto(PORTAL, wait_until="networkidle")
+        _ensure_live_tab(portal)
+        log(f"   ✓ On Live Classes tab ({portal.url})")
 
         # ── 1. wait for a live meeting card ──
         deadline = time.time() + WAIT * 60
         card = None
         iteration = 0
+        idle_checks = 0
         while time.time() < deadline:
             # Make sure we remain on the live classes page on each check
             if "live" not in portal.url:
-                live_tab = portal.get_by_text("Live Classes")
-                if live_tab.count():
-                    live_tab.first.click()
-                    portal.wait_for_load_state("networkidle", timeout=15000)
-                    time.sleep(2)
+                _ensure_live_tab(portal)
 
             iteration += 1
             log(f"🔍 [Check #{iteration}] Scanning for live class...")
@@ -568,9 +660,17 @@ def main():
             if card:
                 log("🎯 LIVE CLASS FOUND! Preparing to join...")
                 break
+            idle_checks = idle_checks + 1 if (SCAN["read"] and not SCAN["pending"]) else 0
+            if EARLY_EXIT and idle_checks >= 2:
+                log("ℹ️  The portal shows no live or upcoming class right now. Exiting early to save minutes.")
+                screenshot(portal, "no_class")
+                browser.close()
+                sys.exit(0)
             log(f"⏳ Class is not live yet. Next check in 30 seconds...")
             time.sleep(30)
             portal.reload(wait_until="domcontentloaded")
+            _ensure_live_tab(portal)
+            wait_for_cards(portal)
 
         if not card:
             log("ℹ️  No live meeting found within the 20-minute window. Exiting quietly.")
